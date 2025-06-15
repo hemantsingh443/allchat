@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Settings, Sun, Moon, Code, Eye, Brain, Filter, X,
     BookOpen, Globe, Paperclip, ArrowUp, ChevronDown, Trash2, Info,
-    LoaderCircle, CheckCircle, XCircle, Lightbulb
+    LoaderCircle, CheckCircle, XCircle, Lightbulb, Maximize2
 } from 'lucide-react';
 import { useAppContext } from '../T3ChatUI';
 import { useAuth } from '@clerk/clerk-react';
@@ -207,8 +207,13 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                                                             }>
                                                             <div className="flex items-center gap-2.5">
                                                                 <span className="font-medium">{model.name}</span>
+                                                                {model.isFree && (
+                                                                    <span className="text-xs font-semibold bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded-full">
+                                                                        Free Tier
+                                                                    </span>
+                                                                )}
                                                                 <Info size={14} className="text-slate-500" />
-            </div>
+                                                            </div>
                                                             <CapabilityIcons capabilities={model.capabilities} />
                                                         </button>
                                                     ))}
@@ -216,13 +221,13 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                                             )
                                         })}
                                     </div>
-                    </GlassPanel>
+                                </GlassPanel>
                             </Dialog.Panel>
                         </Transition.Child>
                     </div>
                 </div>
             </Dialog>
-            </Transition>
+        </Transition>
     );
 };
 
@@ -266,6 +271,48 @@ const WelcomeScreen = () => (
     </div>
 );
 
+const ImagePreview = ({ imageUrl, onRemove, onView }) => {
+    const [isHovering, setIsHovering] = useState(false);
+
+    return (
+        <div 
+            className="mb-3 relative w-24 h-24"
+            onMouseEnter={() => setIsHovering(true)}
+            onMouseLeave={() => setIsHovering(false)}
+        >
+            <GlassPanel className="p-1 rounded-lg overflow-hidden">
+                <div className="relative w-full h-full">
+                    <img 
+                        src={imageUrl} 
+                        alt="Preview" 
+                        className="w-full h-full object-cover rounded-md cursor-pointer hover:opacity-90 transition-opacity"
+                        onClick={onView}
+                    />
+                    <motion.div 
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: isHovering ? 1 : 0 }}
+                        className="absolute inset-0 bg-black/40 flex items-center justify-center"
+                    >
+                        <button 
+                            onClick={onView}
+                            className="p-2 rounded-full bg-white/20 hover:bg-white/30 text-white transition-colors"
+                            title="View full size"
+                        >
+                            <Maximize2 size={20} />
+                        </button>
+                    </motion.div>
+                </div>
+            </GlassPanel>
+            <button 
+                onClick={onRemove} 
+                className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-0.5 border-2 border-slate-900 shadow-lg hover:bg-slate-700 transition-colors"
+            >
+                <X size={16} />
+            </button>
+        </div>
+    );
+};
+
 const ImageViewerModal = ({ imageUrl, onClose }) => (
     <Transition appear show={!!imageUrl} as={React.Fragment}>
         <Dialog as="div" className="relative z-50" onClose={onClose}>
@@ -286,24 +333,26 @@ const ImageViewerModal = ({ imageUrl, onClose }) => (
 );
 
 const MainContent = () => {
-    const { addNotification, getConfirmation } = useNotification(); // Get both functions
-    const { activeChatId, setActiveChatId, getToken, setChats } = useAppContext();
+    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation } = useAppContext();
     const { userKeys } = useApiKeys();
+    const { addNotification } = useNotification();
+
     const [messages, setMessages] = useState([]);
     const [currentMessage, setCurrentMessage] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [isSwitching, setIsSwitching] = useState(false);
-    const [selectedModel, setSelectedModel] = useState('google/gemini-1.5-flash-latest');
+    const [isSearchingWeb, setIsSearchingWeb] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
     const [isWebSearchEnabled, setIsWebSearchEnabled] = useState(false);
-    const [isSearchingWeb, setIsSearchingWeb] = useState(false);
     const [selectedImage, setSelectedImage] = useState(null);
     const [imagePreviewUrl, setImagePreviewUrl] = useState('');
     const [viewingImageUrl, setViewingImageUrl] = useState(null);
     const fileInputRef = useRef(null);
     const chatContainerRef = useRef(null);
-    const selectedModelDetails = allModels.find(m => m.id === selectedModel);
+
+    const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
+    const currentChatModelId = activeChat?.modelId || 'google/gemini-1.5-flash-latest';
 
     const fetchMessages = useCallback(async (chatId) => {
         if (!chatId) {
@@ -356,7 +405,7 @@ const MainContent = () => {
             const res = await fetch(`${API_URL}/api/chat/regenerate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ messageId, newContent, chatId: activeChatId, modelId: selectedModel, userApiKey: userKeys.openrouter })
+                body: JSON.stringify({ messageId, newContent, chatId: activeChatId, modelId: currentChatModelId, userApiKey: userKeys.openrouter })
             });
             if (!res.ok) throw new Error((await res.json()).error || "Failed to regenerate response.");
             fetchMessages(activeChatId);
@@ -418,7 +467,7 @@ const MainContent = () => {
             const body = {
                 messages: apiPayloadMessages,
                 chatId: activeChatId,
-                modelId: selectedModel,
+                modelId: currentChatModelId,
                 userApiKey: userKeys.openrouter,
                 userTavilyKey: userKeys.tavily,
                 useWebSearch: isWebSearchEnabled,
@@ -477,7 +526,6 @@ const MainContent = () => {
     const toggleTheme = () => document.documentElement.classList.toggle('dark');
 
     const handleDeleteMessage = async (messageId) => {
-        // --- THIS IS THE FIX ---
         const confirmed = await getConfirmation({
             title: "Delete Message",
             description: "Are you sure you want to delete this message? This will also remove the AI's response and cannot be undone.",
@@ -516,6 +564,93 @@ const MainContent = () => {
         }
     };
 
+    const handleRegenerate = async (aiMessageIdToReplace, newModelId) => {
+        const aiMessageIndex = messages.findIndex(m => m.id === aiMessageIdToReplace);
+        if (aiMessageIndex < 1) return;
+        const userPromptMessage = messages[aiMessageIndex - 1];
+
+        const originalMessages = [...messages];
+        const messagesBeforeRegen = messages.slice(0, aiMessageIndex);
+        setMessages(messagesBeforeRegen);
+        setIsLoading(true);
+
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/chat/regenerate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({
+                    messageId: userPromptMessage.id,
+                    newContent: userPromptMessage.content,
+                    chatId: activeChatId,
+                    modelId: newModelId || currentChatModelId,
+                    userApiKey: userKeys.openrouter,
+                })
+            });
+
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Failed to regenerate.");
+            
+            const newAiMessage = {
+                ...data.newAiMessage,
+                modelId: newModelId || currentChatModelId,
+                text: data.newAiMessage.content,
+                content: data.newAiMessage.content
+            };
+            
+            setMessages([...messagesBeforeRegen, newAiMessage]);
+
+        } catch (error) {
+            addNotification(error.message, 'error');
+            setMessages(originalMessages);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const handleBranch = async (fromAiMessageId, newModelId) => {
+        // Don't set loading state immediately to avoid the bubble
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/chats/branch`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ 
+                    sourceChatId: activeChatId, 
+                    fromAiMessageId, 
+                    newModelId,
+                    preserveOriginalModel: true
+                }),
+            });
+            if (!res.ok) throw new Error((await res.json()).error || "Failed to branch chat.");
+
+            const newChat = await res.json();
+            
+            // Add sourceChatId to track branching relationship
+            const newChatWithSource = {
+                ...newChat,
+                sourceChatId: activeChatId,
+                branchedFromMessageId: fromAiMessageId
+            };
+            
+            setChats(prev => {
+                const updatedChats = prev.map(c => {
+                    if (c.id === activeChatId) {
+                        return c;
+                    }
+                    return c;
+                });
+                return [newChatWithSource, ...updatedChats];
+            });
+
+            setActiveChatId(newChat.id);
+
+            addNotification(`Branched to new chat with ${allModels.find(m=>m.id===newModelId)?.name || 'new model'}.`, "success");
+        } catch (error) {
+            addNotification(error.message, 'error');
+        }
+    };
+
     return (
         <>
             <ImageViewerModal imageUrl={viewingImageUrl} onClose={() => setViewingImageUrl(null)} />
@@ -523,26 +658,32 @@ const MainContent = () => {
             <ModelSelectorModal
                 isOpen={isModelSelectorOpen}
                 onClose={() => setIsModelSelectorOpen(false)}
-                selectedModel={selectedModel}
-                setSelectedModel={setSelectedModel}
+                selectedModel={currentChatModelId}
+                setSelectedModel={(newModelId) => {
+                    if (activeChat) {
+                        setChats(prev => prev.map(c => 
+                            c.id === activeChatId ? {...c, modelId: newModelId} : c
+                        ));
+                    }
+                }}
                 openSettings={() => setIsSettingsOpen(true)}
             />
-        <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30">
-            <header className="flex justify-end items-center p-4">
-                <div className="flex items-center gap-4">
-                        <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
+            <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30">
+                <header className="flex justify-end items-center p-4">
+                    <div className="flex items-center gap-4">
+                            <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
+                                <GlassPanel className="p-2 rounded-full cursor-pointer">
+                                    <Settings className="text-slate-500 dark:text-gray-400" size={20} />
+                                </GlassPanel>
+                            </div>
+                        <div className="transition-transform duration-200 ease-out hover:scale-110" onClick={toggleTheme}>
                             <GlassPanel className="p-2 rounded-full cursor-pointer">
-                                <Settings className="text-slate-500 dark:text-gray-400" size={20} />
+                                <span className="dark:hidden"><Moon size={20} className="text-slate-500" /></span>
+                                <span className="hidden dark:inline"><Sun size={20} className="text-gray-400" /></span>
                             </GlassPanel>
                         </div>
-                    <div className="transition-transform duration-200 ease-out hover:scale-110" onClick={toggleTheme}>
-                        <GlassPanel className="p-2 rounded-full cursor-pointer">
-                            <span className="dark:hidden"><Moon size={20} className="text-slate-500" /></span>
-                            <span className="hidden dark:inline"><Sun size={20} className="text-gray-400" /></span>
-                        </GlassPanel>
                     </div>
-                </div>
-            </header>
+                </header>
                 <div
                     ref={chatContainerRef}
                     className={`flex-1 overflow-y-auto w-full transition-opacity duration-150 ${isSwitching ? 'opacity-0' : 'opacity-100'}`}
@@ -552,20 +693,25 @@ const MainContent = () => {
                             <WelcomeScreen />
                     )}
                     <AnimatePresence>
-                            {messages.map(msg =>
-                                <ChatMessage
-                                    key={msg.id}
-                                    id={msg.id}
-                                    text={msg.content}
-                                    sender={msg.sender}
-                                    editCount={msg.editCount}
-                                    imageUrl={msg.imageUrl || msg.imagePreviewUrl}
-                                    usedWebSearch={msg.usedWebSearch}
-                                    handleUpdateMessage={handleEditAndResubmit}
-                                    handleDeleteMessage={handleDeleteMessage}
-                                    onImageClick={setViewingImageUrl}
-                                />
-                            )}
+                            {messages.map((msg, index) => {
+                                const modelIdForMessage = msg.sender === 'ai' 
+                                    ? (msg.modelId || activeChat?.modelId)
+                                    : null;
+
+                                return (
+                                    <ChatMessage
+                                        key={msg.id}
+                                        {...msg}
+                                        text={msg.content}
+                                        modelId={modelIdForMessage}
+                                        handleRegenerate={handleRegenerate}
+                                        handleBranch={handleBranch}
+                                        handleUpdateMessage={handleEditAndResubmit}
+                                        handleDeleteMessage={handleDeleteMessage}
+                                        onImageClick={setViewingImageUrl}
+                                    />
+                                );
+                            })}
                     </AnimatePresence>
 
                         {isSearchingWeb && (
@@ -595,14 +741,11 @@ const MainContent = () => {
             <div className="relative z-10 px-4 pb-4 md:px-6 md:pb-6 pt-4">
                     <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative w-full max-w-3xl mx-auto">
                         {imagePreviewUrl && (
-                            <div className="mb-3 relative w-24 h-24">
-                                <GlassPanel className="p-1 rounded-lg">
-                                    <img src={imagePreviewUrl} alt="Preview" className="w-full h-full object-cover rounded-md"/>
-                                </GlassPanel>
-                                <button onClick={handleRemoveImage} className="absolute -top-2 -right-2 bg-slate-800 text-white rounded-full p-0.5 border-2 border-slate-900 shadow-lg">
-                                    <X size={16} />
-                                </button>
-                            </div>
+                            <ImagePreview 
+                                imageUrl={imagePreviewUrl}
+                                onRemove={handleRemoveImage}
+                                onView={() => setViewingImageUrl(imagePreviewUrl)}
+                            />
                         )}
                     <GlassPanel className="flex items-center gap-2 p-1.5">
                         <input
@@ -617,18 +760,15 @@ const MainContent = () => {
                         <div className="flex items-center gap-1">
                                 <button
                                     onClick={() => setIsModelSelectorOpen(true)}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 ${selectedModel.startsWith('google/') ? 'ring-transparent' : (userKeys.openrouter ? 'ring-blue-500/80' : 'ring-red-500/80')}`}
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 ${
+                                        currentChatModelId.startsWith('google/') 
+                                            ? 'ring-transparent' 
+                                            : (userKeys.openrouter ? 'ring-blue-500/80' : 'ring-red-500/80')
+                                    }`}
                                 >
-                                    {selectedModelDetails?.name || 'Select Model'}
+                                    {(allModels.find(m => m.id === currentChatModelId))?.name || 'Select Model'}
                                     <ChevronDown size={14} />
                                 </button>
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    onChange={handleImageSelect}
-                                    accept="image/*"
-                                    className="hidden"
-                                />
                                 <button
                                     onClick={() => setIsWebSearchEnabled(!isWebSearchEnabled)}
                                     className={`p-2 rounded-lg transition-colors relative ${isWebSearchEnabled ? 'bg-blue-600/30 text-blue-400' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}`}
@@ -641,24 +781,32 @@ const MainContent = () => {
                                         </span>
                                     )}
                                 </button>
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleImageSelect}
+                                    accept="image/*"
+                                    className="hidden"
+                                />
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     className="p-2 rounded-lg transition-colors bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
+                                    title="Upload image"
                                 >
                                     <Paperclip size={18} className="text-slate-600 dark:text-gray-400" />
                                 </button>
-                        </div>
+                            </div>
                             <button
                                 onClick={handleSendMessage}
                                 disabled={isLoading || (!currentMessage.trim() && !selectedImage)}
-                                className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedImage) && !isLoading ? 'bg-slate-700 text-white' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}
+                                className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedImage) && !isLoading ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}
                             >
-                            <ArrowUp size={20} />
-                        </button>
-                    </GlassPanel>
-                </motion.div>
+                                <ArrowUp size={20} />
+                            </button>
+                        </GlassPanel>
+                    </motion.div>
+                </div>
             </div>
-        </div>
         </>
     );
 };

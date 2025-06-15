@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, createContext, useContext } from 'react';
 import Sidebar, { SidebarToggle } from './components/Sidebar';
 import MainContent from './components/MainContent';
@@ -18,11 +17,14 @@ const T3ChatUI = () => {
     const memoizedGetToken = useCallback(getToken, [getToken]);
     const { getConfirmation } = useNotification(); 
 
+    // Mouse position effect for aurora animation
     useEffect(() => {
-        const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+        const handleMouseMove = (e) => {
+            setMousePos({ x: e.clientX, y: e.clientY });
+        };
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, []);
+    }, []); // Empty dependency array is fine here since we're using setState
 
     const contextValue = {
         chats,
@@ -41,7 +43,10 @@ const T3ChatUI = () => {
         <AppContext.Provider value={contextValue}>
             <div 
                 className="h-screen w-full font-sans overflow-hidden bg-white dark:bg-[#111015] interactive-aurora-bg"
-                style={{ '--x': `${mousePos.x}px`, '--y': `${mousePos.y}px` }}
+                style={{ 
+                    '--x': `${mousePos.x}px`, 
+                    '--y': `${mousePos.y}px` 
+                }}
             >
                 <main className="relative z-10 flex h-full">
                     <Sidebar isOpen={isSidebarOpen} toggle={toggleSidebar} />

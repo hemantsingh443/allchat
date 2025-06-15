@@ -1,7 +1,5 @@
-// src/data/models.js
-import { MessageSquare, Brain, Eye, Code, Bot } from 'lucide-react';
+import { Bot } from 'lucide-react';
 
-// A categorized list of popular models with rich metadata
 export const modelCategories = [
     {
         name: "Google",
@@ -9,6 +7,18 @@ export const modelCategories = [
         models: [
             { id: 'google/gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', capabilities: { vision: true, reasoning: true } },
             { id: 'google/gemini-pro-1.5', name: 'Gemini 1.5 Pro', capabilities: { vision: true, reasoning: true } },
+        ]
+    },
+    {
+        name: "Mistral AI",
+        logo: <Bot size={16} className="text-orange-400" />,
+        models: [
+            { 
+                id: 'mistralai/mistral-7b-instruct:free', 
+                name: 'Mistral 7B Instruct', 
+                capabilities: { reasoning: true },
+                isFree: true
+            },
         ]
     },
     {
