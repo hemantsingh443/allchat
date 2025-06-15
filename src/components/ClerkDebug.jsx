@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useAuth } from '@clerk/clerk-react';
 
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+
 const ClerkDebug = () => {
     const { getToken } = useAuth();
     const [result, setResult] = useState(null);
@@ -21,7 +23,7 @@ const ClerkDebug = () => {
             }
             console.log("1. Frontend: Successfully retrieved a token.");
 
-            const response = await fetch('http://localhost:5001/api/verify', {
+            const response = await fetch(`${API_URL}/api/verify`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             
