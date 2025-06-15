@@ -21,20 +21,43 @@ const allowedOrigins = [
     'https://allchat-topaz.vercel.app'
 ];
 
-// Configure CORS
-app.use(cors({
-    origin: function(origin, callback) {
-        console.log('Request origin:', origin);
-        if (!origin || allowedOrigins.includes(origin)) {
-            callback(null, true);
-        } else {
-            callback(new Error('Not allowed by CORS'));
+// Configure CORS with robust error handling
+const corsOptions = {
+    origin: function (origin, callback) {
+        console.log('Incoming request from origin:', origin);
+        // Allow requests with no origin (like mobile apps or curl requests)
+        if (!origin) {
+            console.log('Request with no origin - allowing');
+            return callback(null, true);
         }
+        if (allowedOrigins.indexOf(origin) === -1) {
+            const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+            console.log('CORS error:', msg, 'Origin:', origin);
+            return callback(new Error(msg), false);
+        }
+        console.log('Origin allowed:', origin);
+        return callback(null, true);
     },
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true
-}));
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
+
+// Add error handling for CORS
+app.use((err, req, res, next) => {
+    if (err.message.includes('CORS')) {
+        console.error('CORS Error:', err.message);
+        return res.status(403).json({
+            error: 'CORS Error',
+            message: err.message
+        });
+    }
+    next(err);
+});
 
 app.use(clerkMiddleware({ secretKey: process.env.CLERK_SECRET_KEY }));
 
