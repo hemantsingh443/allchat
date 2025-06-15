@@ -7,7 +7,6 @@ import { neon } from '@neondatabase/serverless';
 import { tavily } from '@tavily/core';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import * as schema from './src/db/schema.js';
-
 import keyRoutes from './src/routes/keyRoutes.js';
 import createChatRoutes from './src/routes/chatRoutes.js';
 
@@ -16,7 +15,27 @@ const port = process.env.PORT || 5001;
 
 // --- Middleware ---
 app.use(express.json({ limit: '10mb' }));
-app.use(cors());
+
+const allowedOrigins = [
+    'http://localhost:3000',
+    'https://allchat-topaz.vercel.app'
+];
+
+app.use(cors({
+    origin: function(origin, callback) {
+        if (!origin) {
+            return callback(null, true);
+        }
+        if (allowedOrigins.indexOf(origin) !== -1) {
+            callback(null, true);
+        } else {
+            console.log('Blocked by CORS:', origin);
+            callback(new Error('Not allowed by CORS'));
+        }
+    },
+    credentials: true
+}));
+
 app.use(clerkMiddleware({ secretKey: process.env.CLERK_SECRET_KEY }));
 
 // --- Service Initializations ---
