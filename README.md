@@ -64,7 +64,7 @@ A modern, feature-rich AI chat application built as a T3Chat clone for the Clone
 
 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/allchat.git
+git clone https://github.com/hemantsingh443/allchat.git
 cd allchat
 ```
 
