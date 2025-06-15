@@ -10,7 +10,6 @@ const formatGoogleMessages = (messages) => messages.map(msg => ({
     parts: [{ text: msg.content }],
 }));
 
-// --- Helper function to upload an image ---
 async function uploadImage(base64Image) {
     if (!process.env.IMGBB_API_KEY) {
         throw new Error("IMGBB_API_KEY is not set. Cannot upload image.");
@@ -187,7 +186,7 @@ export const handleChat = (db, genAI, serverTavily) => async (req, res) => {
             }
             const result = await model.generateContent({ contents: [{ role: "user", parts: promptParts }] });
             aiResponseContent = result.response.text();
-        } else { // OpenRouter
+        } else { 
             if (!userApiKey) throw new Error("OpenRouter API key is required.");
             
             let openRouterMessageContent = [{ type: 'text', text: lastUserMessage.content }];
@@ -252,7 +251,6 @@ export const handleChat = (db, genAI, serverTavily) => async (req, res) => {
     }
 };
 
-// --- FULLY IMPLEMENTED REGENERATE HANDLER ---
 export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);
     const { messageId, newContent, chatId, modelId, userApiKey, useWebSearch } = req.body;
@@ -262,7 +260,7 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
     }
 
     try {
-        // Get the original message to preserve the imageUrl
+        
         const [originalMessage] = await db.select().from(schema.messages)
             .where(eq(schema.messages.id, messageId));
 
@@ -270,11 +268,11 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             return res.status(404).json({ error: "Message to edit not found." });
         }
 
-        // Update the message content while preserving the imageUrl
+        
         const [updatedUserMessage] = await db.update(schema.messages).set({
             content: newContent,
             editCount: sql`${schema.messages.editCount} + 1`,
-            // imageUrl remains unchanged
+          
         }).where(eq(schema.messages.id, messageId)).returning();
 
         await db.delete(schema.messages).where(and(
@@ -302,7 +300,7 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
             const result = await chat.sendMessage(lastMessageContent);
             aiResponseContent = result.response.text();
-        } else { // OpenRouter
+        } else {
             if (!userApiKey) throw new Error("OpenRouter API key is required.");
             const apiMessages = [
                 ...historyForAI.map(m => ({ role: m.sender, content: m.content })),
