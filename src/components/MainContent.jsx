@@ -353,7 +353,7 @@ const MainContent = () => {
         }
         try {
             const token = await getToken();
-            const res = await fetch('http://localhost:5001/api/chat/regenerate', {
+            const res = await fetch(`${API_URL}/api/chat/regenerate`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify({ messageId, newContent, chatId: activeChatId, modelId: selectedModel, userApiKey: userKeys.openrouter })
