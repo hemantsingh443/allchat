@@ -14,7 +14,7 @@ const port = process.env.PORT || 5001;
 
 const allowedOrigins = [
     'http://localhost:3000',
-    'https://your-frontend-domain.vercel.app' 
+    'https://allchat-topaz.vercel.app/' 
 ];
 
 app.use(cors({
