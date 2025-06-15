@@ -1,8 +1,9 @@
+
 import React, { useState, useCallback, useEffect, createContext, useContext } from 'react';
-import Sidebar from './components/Sidebar';
+import Sidebar, { SidebarToggle } from './components/Sidebar';
 import MainContent from './components/MainContent';
 import { useAuth } from '@clerk/clerk-react';
-
+import { useNotification } from './contexts/NotificationContext'; 
 
 const AppContext = createContext();
 export const useAppContext = () => useContext(AppContext);
@@ -12,9 +13,10 @@ const T3ChatUI = () => {
     const [chats, setChats] = useState([]);
     const [activeChatId, setActiveChatId] = useState(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+
     const { getToken } = useAuth();
     const memoizedGetToken = useCallback(getToken, [getToken]);
-
+    const { getConfirmation } = useNotification(); 
 
     useEffect(() => {
         const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
@@ -28,6 +30,7 @@ const T3ChatUI = () => {
         activeChatId,
         setActiveChatId,
         getToken: memoizedGetToken,
+        getConfirmation,
     };
 
     const toggleSidebar = () => {
@@ -43,6 +46,7 @@ const T3ChatUI = () => {
                 <main className="relative z-10 flex h-full">
                     <Sidebar isOpen={isSidebarOpen} toggle={toggleSidebar} />
                     <MainContent />
+                    <SidebarToggle isOpen={isSidebarOpen} toggle={toggleSidebar} />
                 </main>
             </div>
         </AppContext.Provider>

@@ -4,34 +4,40 @@ import { Plus, MessageSquare, Trash2, PanelLeftOpen } from 'lucide-react';
 import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
 import { allModels } from '../data/models';
-import GlassPanel from './GlassPanel';
+import GlassPanel from '../components/GlassPanel';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const Sidebar = ({ isOpen, toggle }) => {
-    const { chats, setChats, activeChatId, setActiveChatId, getToken } = useAppContext();
+    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation } = useAppContext();
     const [hoveredChatId, setHoveredChatId] = useState(null);
 
     useEffect(() => {
         const fetchChats = async () => {
             try {
                 const token = await getToken();
-                const res = await fetch(`${API_URL}/api/chats`, { 
-                    headers: { 'Authorization': `Bearer ${token}` } 
-                });
+                const res = await fetch(`${API_URL}/api/chats`, { headers: { 'Authorization': `Bearer ${token}` } });
                 if (!res.ok) throw new Error("Failed to fetch chats");
                 const data = await res.json();
                 setChats(data);
             } catch (error) { console.error(error); }
         };
-        fetchChats();
+        if (getToken) fetchChats();
     }, [getToken, setChats]);
 
     const handleNewChat = () => { setActiveChatId(null); };
 
     const handleDeleteChat = async (chatId, e) => {
         e.stopPropagation();
-        if (!window.confirm("Are you sure you want to delete this chat?")) return;
+
+        const confirmed = await getConfirmation({
+            title: "Delete Chat",
+            description: "Are you sure you want to permanently delete this entire chat history?",
+            confirmText: "Delete Chat"
+        });
+
+        if (!confirmed) return;
+
         try {
             const token = await getToken();
             const res = await fetch(`${API_URL}/api/chats/${chatId}`, {
@@ -39,54 +45,63 @@ const Sidebar = ({ isOpen, toggle }) => {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
             if (res.ok) {
-                setChats(prev => prev.filter(c => c.id !== chatId));
-                if (activeChatId === chatId) setActiveChatId(null);
+                const data = await res.json();
+                setChats(prev => prev.filter(c => c.id !== data.deletedChatId));
+                if (activeChatId === data.deletedChatId) {
+                    setActiveChatId(null);
+                }
+            } else {
+                console.error("Failed to delete chat");
             }
-        } catch (error) { console.error("Failed to delete chat:", error); }
+        } catch (error) { 
+            console.error("Failed to delete chat:", error);
+        }
     };
 
     return (
         <motion.div
-            animate={{ width: isOpen ? 260 : 56 }} 
+            animate={{ width: isOpen ? 260 : 0 }}
+            initial={false}
             transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-            className="relative h-full flex flex-col p-3 backdrop-blur-3xl transition-colors duration-300
-                       bg-white/40 border-r border-white/60
-                       dark:bg-black/40 dark:border-r dark:border-white/20"
+            className={`relative h-full flex flex-col bg-white/40 dark:bg-black/40 
+                       border-r border-white/60 dark:border-white/20 shrink-0 overflow-hidden`}
         >
-            <button
-                onClick={toggle}
-                className="absolute top-4 left-3 p-2 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/5 z-10"
-            >
-                <PanelLeftOpen size={20} className="text-slate-700 dark:text-gray-300" />
-            </button>
-            
-            <AnimatePresence>
-                {isOpen && (
-                    <motion.div
-                        initial={{ opacity: 0, x: -20 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
-                        transition={{ duration: 0.2, ease: 'easeInOut' }}
-                        className="w-full h-full flex flex-col"
-                    >
-                        <div className="flex items-center justify-between pl-12 pr-2 mb-4">
-                            <h1 className="text-lg font-bold text-slate-700 dark:text-gray-300">AllChat</h1>
-                            <UserButton afterSignOutUrl='/' />
-                        </div>
+            <div className="p-3 w-[260px] h-full flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2">
+                        {isOpen && (
+                            <button
+                                onClick={toggle}
+                                className="p-2 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/5"
+                            >
+                                <PanelLeftOpen size={20} className="text-slate-700 dark:text-gray-300" />
+                            </button>
+                        )}
+                        <h1 className="text-lg font-bold text-slate-800 dark:text-gray-200">AllChat</h1>
+                    </div>
+                    <UserButton afterSignOutUrl='/' />
+                </div>
 
-                        <div onClick={handleNewChat} className="mb-5 transition-transform duration-200 ease-out hover:scale-[1.03] cursor-pointer">
-                            <GlassPanel className="p-2.5 hover:bg-neutral-400/30 dark:hover:bg-black/50 transition-colors">
-                                <div className="flex items-center justify-center gap-2 w-full text-sm font-medium text-slate-700 dark:text-gray-300">
-                                    <Plus size={16} />
-                                    <span>New Chat</span>
-                                </div>
-                            </GlassPanel>
+                <div onClick={handleNewChat} className="mb-5 transition-transform duration-200 ease-out hover:scale-[1.03] cursor-pointer">
+                    <GlassPanel className="p-2.5 hover:bg-neutral-400/30 dark:hover:bg-black/50 transition-colors">
+                        <div className="flex items-center justify-center gap-2 w-full text-sm font-medium text-slate-700 dark:text-gray-300">
+                            <Plus size={16} />
+                            <span>New Chat</span>
                         </div>
-                        
-                        <div className="flex-1 overflow-y-auto space-y-2 pr-1">
-                            {chats.map(chat => (
+                    </GlassPanel>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
+                    <AnimatePresence>
+                        {chats.map(chat => (
+                            <motion.div
+                                key={chat.id}
+                                layout
+                                initial={{ opacity: 0, y: -10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
+                            >
                                 <div
-                                    key={chat.id}
                                     onClick={() => setActiveChatId(chat.id)}
                                     onMouseEnter={() => setHoveredChatId(chat.id)}
                                     onMouseLeave={() => setHoveredChatId(null)}
@@ -116,13 +131,31 @@ const Sidebar = ({ isOpen, toggle }) => {
                                         </motion.button>
                                     )}
                                 </div>
-                            ))}
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                            </motion.div>
+                        ))}
+                    </AnimatePresence>
+                </div>
+            </div>
         </motion.div>
     );
 };
 
+const SidebarToggle = ({ isOpen, toggle }) => {
+    if (isOpen) return null;
+    return (
+        <motion.button
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={toggle}
+            className="absolute top-4 left-3 p-2 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/5 z-10
+                       bg-white/40 dark:bg-black/40 backdrop-blur-sm
+                       border border-white/60 dark:border-white/20"
+        >
+            <PanelLeftOpen size={20} className="text-slate-700 dark:text-gray-300" />
+        </motion.button>
+    )
+}
+
 export default Sidebar;
+export { SidebarToggle };

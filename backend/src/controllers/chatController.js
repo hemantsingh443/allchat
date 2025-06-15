@@ -175,7 +175,6 @@ export const handleChat = (db, genAI, serverTavily) => async (req, res) => {
         const isGoogleModel = modelId.startsWith('google/');
         let imageUrl = null;
 
-        // Upload image if present
         if (imageData && imageMimeType) {
             imageUrl = await uploadImage(imageData);
         }
@@ -203,8 +202,11 @@ export const handleChat = (db, genAI, serverTavily) => async (req, res) => {
             });
 
             if (!openRouterResponse.ok) {
-                 const errorText = await openRouterResponse.text();
-                 throw new Error(`OpenRouter Error: ${errorText}`);
+                const errorData = await openRouterResponse.json();
+                if (openRouterResponse.status === 402) {
+                    throw new Error("OpenRouter API key has insufficient funds. Please add credits to your OpenRouter account.");
+                }
+                throw new Error(`OpenRouter Error: ${errorData.error?.message || 'An unknown error occurred'}`);
             }
             const data = await openRouterResponse.json();
             aiResponseContent = data.choices[0].message.content;
@@ -225,7 +227,7 @@ export const handleChat = (db, genAI, serverTavily) => async (req, res) => {
             sender: 'user', 
             content: userMessageContentToSave,
             imageUrl: imageUrl,
-            usedWebSearch: useWebSearch // Store web search status
+            usedWebSearch: useWebSearch
         }).returning();
 
         const [aiMessage] = await db.insert(schema.messages).values({ 
@@ -236,10 +238,16 @@ export const handleChat = (db, genAI, serverTavily) => async (req, res) => {
         
         res.json({ userMessage, aiMessage, newChat, chatId: currentChatId });
     } catch (error) {
+        console.error('Error in chat handler:', error);
         if (error.message.includes("TAVILY_API_KEY")) {
             return res.status(400).json({ error: "The provided Tavily API key is invalid or has insufficient credits." });
         }
-        console.error('Error in chat handler:', error);
+        if (error.message.includes("OpenRouter API key has insufficient funds")) {
+            return res.status(402).json({ error: error.message });
+        }
+        if (error.message.includes("OpenRouter API key is required")) {
+            return res.status(400).json({ error: error.message });
+        }
         res.status(500).json({ error: `API Error: ${error.message}` });
     }
 };

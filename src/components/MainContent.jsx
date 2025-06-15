@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-    Settings, Sun, Moon, Code, Eye, Brain, Filter, X, 
+import {
+    Settings, Sun, Moon, Code, Eye, Brain, Filter, X,
     BookOpen, Globe, Paperclip, ArrowUp, ChevronDown, Trash2, Info,
     LoaderCircle, CheckCircle, XCircle, Lightbulb
 } from 'lucide-react';
@@ -12,13 +12,15 @@ import ChatMessage from './ChatMessage';
 import { Transition, Dialog } from '@headlessui/react';
 import { useApiKeys } from '../contexts/ApiKeyContext';
 import { allModels, modelCategories } from '../data/models';
+import { useNotification } from '../contexts/NotificationContext';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const SettingsModal = ({ isOpen, onClose }) => {
     const { userKeys, updateApiKey } = useApiKeys();
     const { getToken } = useAuth();
-    
+    const { addNotification } = useNotification();
+
     const [openRouterKey, setOpenRouterKey] = useState('');
     const [tavilyKey, setTavilyKey] = useState('');
     const [orVerifying, setOrVerifying] = useState(false);
@@ -39,7 +41,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
         setOrVerifying(true);
         setOrStatus({ state: 'idle' });
         try {
-            const clerkToken = await getToken(); 
+            const clerkToken = await getToken();
             const res = await fetch(`${API_URL}/api/verify-openrouter-key`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clerkToken}` },
@@ -49,8 +51,10 @@ const SettingsModal = ({ isOpen, onClose }) => {
             if (!res.ok || !data.success) throw new Error(data.error || 'Invalid OpenRouter Key');
             updateApiKey('openrouter', openRouterKey);
             setOrStatus({ state: 'success', message: 'OpenRouter key verified!' });
+            addNotification('OpenRouter key verified and saved!', 'success');
         } catch (error) {
             setOrStatus({ state: 'error', message: error.message });
+            addNotification(error.message, 'error');
         } finally {
             setOrVerifying(false);
         }
@@ -60,7 +64,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
         setTavilyVerifying(true);
         setTavilyStatus({ state: 'idle' });
         try {
-            const clerkToken = await getToken(); 
+            const clerkToken = await getToken();
             const res = await fetch(`${API_URL}/api/verify-tavily-key`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${clerkToken}` },
@@ -70,8 +74,10 @@ const SettingsModal = ({ isOpen, onClose }) => {
             if (!res.ok || !data.success) throw new Error(data.error || 'Invalid Tavily Key');
             updateApiKey('tavily', tavilyKey);
             setTavilyStatus({ state: 'success', message: 'Tavily key verified!' });
+            addNotification('Tavily key verified and saved!', 'success');
         } catch (error) {
             setTavilyStatus({ state: 'error', message: error.message });
+            addNotification(error.message, 'error');
         } finally {
             setTavilyVerifying(false);
         }
@@ -86,6 +92,7 @@ const SettingsModal = ({ isOpen, onClose }) => {
             setTavilyKey('');
             setTavilyStatus({ state: 'idle' });
         }
+        addNotification(`${keyType.charAt(0).toUpperCase() + keyType.slice(1)} key removed.`, 'info');
     };
 
     return (
@@ -150,12 +157,14 @@ const CapabilityIcons = ({ capabilities = {} }) => (
 const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, openSettings }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const { userKeys } = useApiKeys();
+    const { addNotification } = useNotification();
 
     const handleSelectModel = (model) => {
         if (model.id.startsWith('google/') || userKeys.openrouter) {
             setSelectedModel(model.id);
             onClose();
         } else {
+            addNotification('OpenRouter key required for this model.', 'warning');
             onClose();
             setTimeout(() => openSettings(), 150);
         }
@@ -173,7 +182,13 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                             <Dialog.Panel as={motion.div} className="w-[340px] max-w-sm transform text-left align-middle transition-all">
                                 <GlassPanel className="p-2">
                                     <div className="relative mb-2">
-                                        <input type="text" placeholder="Filter models..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-4 pr-8 py-2 text-sm rounded-lg border-slate-700 bg-[#282834] text-slate-200 dark:text-gray-200 placeholder-gray-500 focus:ring-1 focus:ring-blue-400/50 focus:border-blue-400/50" />
+                                        <input
+                                            type="text"
+                                            placeholder="Filter models..."
+                                            value={searchTerm}
+                                            onChange={(e) => setSearchTerm(e.target.value)}
+                                            className="w-full pl-4 pr-8 py-2 text-sm rounded-lg bg-white/40 dark:bg-black/20 border border-black/10 dark:border-white/10 text-slate-800 dark:text-gray-200 placeholder:text-slate-600 dark:placeholder:text-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
+                                        />
                                         <Filter size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" />
                                     </div>
                                     <div className="max-h-72 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
@@ -186,7 +201,7 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                                                 <div key={category.name}>
                                                     <h3 className="px-2 py-1 text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase flex items-center gap-2">{category.logo} {category.name}</h3>
                                                     {filteredModels.map((model) => (
-                                                        <button key={model.id} onClick={() => handleSelectModel(model)} 
+                                                        <button key={model.id} onClick={() => handleSelectModel(model)}
                                                             className={`group flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors duration-150
                                                                 ${selectedModel === model.id ? 'bg-blue-600 text-white' : 'text-slate-300 dark:text-gray-200 hover:bg-white/10'}`
                                                             }>
@@ -227,22 +242,22 @@ const WelcomeScreen = () => (
     <div className="flex flex-col justify-center items-center h-full text-center py-10">
         <h2 className="text-5xl mb-12 font-medium text-slate-800 dark:text-gray-300">How can I help you?</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full max-w-2xl">
-            <SuggestionCard 
+            <SuggestionCard
                 icon={<Lightbulb size={20} className="text-yellow-500" />}
                 title="Brainstorm ideas"
                 description="for my new YouTube channel about retro gaming"
             />
-            <SuggestionCard 
+            <SuggestionCard
                 icon={<Code size={20} className="text-orange-500" />}
                 title="Write a script"
                 description="in Python to automate my daily reports"
             />
-            <SuggestionCard 
+            <SuggestionCard
                 icon={<BookOpen size={20} className="text-blue-500" />}
                 title="Summarize this text"
                 description="from a long article I need to read for work"
             />
-            <SuggestionCard 
+            <SuggestionCard
                 icon={<Globe size={20} className="text-green-500" />}
                 title="Plan a trip"
                 description="for a 5-day hiking adventure in the mountains"
@@ -271,6 +286,7 @@ const ImageViewerModal = ({ imageUrl, onClose }) => (
 );
 
 const MainContent = () => {
+    const { addNotification, getConfirmation } = useNotification(); // Get both functions
     const { activeChatId, setActiveChatId, getToken, setChats } = useAppContext();
     const { userKeys } = useApiKeys();
     const [messages, setMessages] = useState([]);
@@ -292,25 +308,26 @@ const MainContent = () => {
     const fetchMessages = useCallback(async (chatId) => {
         if (!chatId) {
             setMessages([]);
-            setIsLoading(false); 
+            setIsLoading(false);
             return;
         }
-        setIsSwitching(true); 
-        try {
-            const token = await getToken();
-            const res = await fetch(`${API_URL}/api/chats/${chatId}`, { 
-                headers: { 'Authorization': `Bearer ${token}` } 
+        setIsSwitching(true);
+            try {
+                const token = await getToken();
+            const res = await fetch(`${API_URL}/api/chats/${chatId}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
             });
-            if (!res.ok) throw new Error("Failed to fetch messages.");
-            const data = await res.json();
+                if (!res.ok) throw new Error("Failed to fetch messages.");
+                const data = await res.json();
             setMessages(data.map(msg => ({ ...msg, text: msg.content })));
-        } catch (error) {
-            console.error(error);
-            setMessages([{ id: 'error', text: 'Could not load this chat.', sender: 'ai' }]);
-        } finally {
+            } catch (error) {
+                console.error(error);
+                addNotification(error.message, 'error');
+                setMessages([{ id: 'error', text: 'Could not load this chat.', sender: 'ai' }]);
+            } finally {
             setTimeout(() => setIsSwitching(false), 150);
         }
-    }, [getToken]);
+    }, [getToken, addNotification]);
 
     useEffect(() => {
         fetchMessages(activeChatId);
@@ -345,7 +362,7 @@ const MainContent = () => {
             fetchMessages(activeChatId);
         } catch (error) {
             console.error("Regeneration failed:", error);
-            alert(`Error regenerating response: ${error.message}`);
+            addNotification(`Error regenerating response: ${error.message}`, 'error');
             fetchMessages(activeChatId);
         } finally {
             setIsLoading(false);
@@ -376,7 +393,7 @@ const MainContent = () => {
         
         const messageToSend = currentMessage;
         const oldMessages = [...messages];
-        
+
         const optimisticMessage = {
             id: `temp-${Date.now()}`,
             content: messageToSend,
@@ -384,10 +401,10 @@ const MainContent = () => {
             imagePreviewUrl: imagePreviewUrl,
             usedWebSearch: isWebSearchEnabled,
         };
-        
+
         const newMessagesForUI = [...oldMessages, optimisticMessage];
         const apiPayloadMessages = newMessagesForUI.map(msg => ({ role: 'user', content: msg.content }));
-        
+
         setMessages(newMessagesForUI);
         setCurrentMessage('');
         setIsLoading(true);
@@ -399,9 +416,9 @@ const MainContent = () => {
         try {
             const token = await getToken();
             const body = {
-                messages: apiPayloadMessages, 
+                messages: apiPayloadMessages,
                 chatId: activeChatId,
-                modelId: selectedModel, 
+                modelId: selectedModel,
                 userApiKey: userKeys.openrouter,
                 userTavilyKey: userKeys.tavily,
                 useWebSearch: isWebSearchEnabled,
@@ -414,7 +431,7 @@ const MainContent = () => {
 
             handleRemoveImage();
             setIsWebSearchEnabled(false);
-            
+
             const response = await fetch(`${API_URL}/api/chat`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -422,17 +439,19 @@ const MainContent = () => {
             });
             
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || "An unknown error occurred.");
+            if (!response.ok) {
+                throw new Error(data.error || "An unknown error occurred.");
+            }
 
-            const finalUserMessage = { 
-                ...data.userMessage, 
-                text: data.userMessage.content, 
+            const finalUserMessage = {
+                ...data.userMessage,
+                text: data.userMessage.content,
                 imagePreviewUrl: imagePreviewUrl,
                 usedWebSearch: isWebSearchEnabled,
             };
-            const finalAiMessage = { 
-                ...data.aiMessage, 
-                text: data.aiMessage.content 
+            const finalAiMessage = {
+                ...data.aiMessage,
+                text: data.aiMessage.content
             };
 
             if (data.newChat) {
@@ -443,9 +462,10 @@ const MainContent = () => {
                 setMessages([...oldMessages, finalUserMessage, finalAiMessage]);
             }
         } catch (error) {
+            console.error("Error sending message:", error);
             setMessages(oldMessages);
             setCurrentMessage(messageToSend);
-            alert(`Error: ${error.message}`);
+            addNotification(error.message, 'error');
         } finally {
             setIsLoading(false);
             setIsSearchingWeb(false);
@@ -457,8 +477,15 @@ const MainContent = () => {
     const toggleTheme = () => document.documentElement.classList.toggle('dark');
 
     const handleDeleteMessage = async (messageId) => {
-        if (!window.confirm("Are you sure you want to delete this message? This will also delete the AI's response.")) return;
-        
+        // --- THIS IS THE FIX ---
+        const confirmed = await getConfirmation({
+            title: "Delete Message",
+            description: "Are you sure you want to delete this message? This will also remove the AI's response and cannot be undone.",
+            confirmText: "Delete",
+        });
+
+        if (!confirmed) return; 
+
         try {
             const token = await getToken();
             const res = await fetch(`${API_URL}/api/messages/${messageId}`, {
@@ -470,9 +497,10 @@ const MainContent = () => {
             if (!res.ok || !data.success) {
                 throw new Error(data.error || "Failed to delete message.");
             }
-            
+
             if (data.deletedIds && data.deletedIds.length > 0) {
                 setMessages(prev => prev.filter(m => !data.deletedIds.includes(m.id)));
+                addNotification('Message deleted.', 'info');
             }
 
             if (data.chatDeleted) {
@@ -480,10 +508,11 @@ const MainContent = () => {
                 if (activeChatId === data.deletedChatId) {
                     setActiveChatId(null);
                 }
+                addNotification('Chat deleted.', 'info');
             }
 
         } catch (error) {
-            alert(`Error: ${error.message}`);
+            addNotification(error.message, 'error');
         }
     };
 
@@ -491,7 +520,7 @@ const MainContent = () => {
         <>
             <ImageViewerModal imageUrl={viewingImageUrl} onClose={() => setViewingImageUrl(null)} />
             <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-            <ModelSelectorModal 
+            <ModelSelectorModal
                 isOpen={isModelSelectorOpen}
                 onClose={() => setIsModelSelectorOpen(false)}
                 selectedModel={selectedModel}
@@ -514,8 +543,8 @@ const MainContent = () => {
                     </div>
                 </div>
             </header>
-                <div 
-                    ref={chatContainerRef} 
+                <div
+                    ref={chatContainerRef}
                     className={`flex-1 overflow-y-auto w-full transition-opacity duration-150 ${isSwitching ? 'opacity-0' : 'opacity-100'}`}
                 >
                 <div className="max-w-4xl mx-auto px-4 space-y-4 py-4">
@@ -577,31 +606,31 @@ const MainContent = () => {
                         )}
                     <GlassPanel className="flex items-center gap-2 p-1.5">
                         <input
-                                type="text" 
-                                value={currentMessage} 
-                                onChange={(e) => setCurrentMessage(e.target.value)} 
-                                onKeyDown={handleKeyDown} 
+                                type="text"
+                                value={currentMessage}
+                                onChange={(e) => setCurrentMessage(e.target.value)}
+                                onKeyDown={handleKeyDown}
                             placeholder="Type your message here..."
                             className="flex-1 bg-transparent px-3 py-2 text-md text-slate-700 placeholder:text-slate-500 dark:text-gray-300 dark:placeholder:text-gray-500 focus:outline-none"
                             disabled={isLoading}
                         />
                         <div className="flex items-center gap-1">
-                                <button 
-                                    onClick={() => setIsModelSelectorOpen(true)} 
+                                <button
+                                    onClick={() => setIsModelSelectorOpen(true)}
                                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 ${selectedModel.startsWith('google/') ? 'ring-transparent' : (userKeys.openrouter ? 'ring-blue-500/80' : 'ring-red-500/80')}`}
                                 >
                                     {selectedModelDetails?.name || 'Select Model'}
                                     <ChevronDown size={14} />
                                 </button>
-                                <input 
-                                    type="file" 
-                                    ref={fileInputRef} 
-                                    onChange={handleImageSelect} 
-                                    accept="image/*" 
-                                    className="hidden" 
+                                <input
+                                    type="file"
+                                    ref={fileInputRef}
+                                    onChange={handleImageSelect}
+                                    accept="image/*"
+                                    className="hidden"
                                 />
-                                <button 
-                                    onClick={() => setIsWebSearchEnabled(!isWebSearchEnabled)} 
+                                <button
+                                    onClick={() => setIsWebSearchEnabled(!isWebSearchEnabled)}
                                     className={`p-2 rounded-lg transition-colors relative ${isWebSearchEnabled ? 'bg-blue-600/30 text-blue-400' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}`}
                                     title="Toggle Web Search"
                                 >
@@ -612,16 +641,16 @@ const MainContent = () => {
                                         </span>
                                     )}
                                 </button>
-                                <button 
-                                    onClick={() => fileInputRef.current?.click()} 
+                                <button
+                                    onClick={() => fileInputRef.current?.click()}
                                     className="p-2 rounded-lg transition-colors bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
                                 >
                                     <Paperclip size={18} className="text-slate-600 dark:text-gray-400" />
                                 </button>
                         </div>
-                            <button 
-                                onClick={handleSendMessage} 
-                                disabled={isLoading || (!currentMessage.trim() && !selectedImage)} 
+                            <button
+                                onClick={handleSendMessage}
+                                disabled={isLoading || (!currentMessage.trim() && !selectedImage)}
                                 className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedImage) && !isLoading ? 'bg-slate-700 text-white' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}
                             >
                             <ArrowUp size={20} />
