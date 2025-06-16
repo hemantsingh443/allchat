@@ -3,19 +3,51 @@ export const verifyOpenRouterKey = async (req, res) => {
     if (!apiKey) {
         return res.status(400).json({ success: false, error: 'API Key is required.' });
     }
+
     try {
+        console.log('Verifying OpenRouter key...');
         const response = await fetch("https://openrouter.ai/api/v1/auth/key", {
             method: "GET",
-            headers: { "Authorization": `Bearer ${apiKey}` },
+            headers: { 
+                "Authorization": `Bearer ${apiKey}`,
+                "HTTP-Referer": "http://localhost:3000", // Required for free tier
+                "X-Title": "T3Chat" // Optional but helpful for OpenRouter
+            },
         });
+
+        const responseData = await response.json();
+        console.log('OpenRouter verification response:', {
+            status: response.status,
+            ok: response.ok,
+            data: responseData
+        });
+
         if (response.ok) {
-            res.status(200).json({ success: true, message: 'OpenRouter Key is valid.' });
+            res.status(200).json({ 
+                success: true, 
+                message: 'OpenRouter Key is valid.',
+                data: responseData
+            });
         } else {
-            const errorData = await response.json();
-            res.status(response.status).json({ success: false, error: errorData.error?.message || 'Invalid OpenRouter API Key.' });
+            const errorMessage = responseData.error?.message || 'Invalid OpenRouter API Key.';
+            console.error('OpenRouter key verification failed:', {
+                status: response.status,
+                error: errorMessage,
+                details: responseData
+            });
+            res.status(response.status).json({ 
+                success: false, 
+                error: errorMessage,
+                details: responseData
+            });
         }
     } catch (error) {
-        res.status(500).json({ success: false, error: 'Failed to contact OpenRouter for verification.' });
+        console.error('Error verifying OpenRouter key:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to contact OpenRouter for verification.',
+            details: error.message
+        });
     }
 };
 
