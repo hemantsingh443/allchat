@@ -367,6 +367,39 @@ const SearchingIndicator = () => {
     );
 };
 
+// Add custom tooltip component
+const CustomTooltip = ({ children, text, isGuest }) => {
+    const [isVisible, setIsVisible] = useState(false);
+
+    return (
+        <div 
+            className="relative inline-block"
+            onMouseEnter={() => setIsVisible(true)}
+            onMouseLeave={() => setIsVisible(false)}
+        >
+            {children}
+            <AnimatePresence>
+                {isVisible && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 5 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 5 }}
+                        transition={{ duration: 0.15 }}
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50"
+                    >
+                        <GlassPanel className="px-3 py-1.5 text-xs whitespace-nowrap">
+                            <span className={`${isGuest ? 'text-red-400' : 'text-slate-600 dark:text-gray-300'}`}>
+                                {text}
+                            </span>
+                        </GlassPanel>
+                        <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-white/10 dark:bg-black/10 rotate-45" />
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
 const MainContent = () => {
     const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, isGuest, handleSignIn } = useAppContext();
     const { userKeys } = useApiKeys();
@@ -993,10 +1026,13 @@ const MainContent = () => {
                             disabled={isLoading}
                         />
                         <div className="flex items-center gap-1">
+                            <CustomTooltip 
+                                text={isGuest ? "Sign in to access other AI models" : "Select Model"}
+                                isGuest={isGuest}
+                            >
                                 <button
                                     onClick={handleGuestModelSelect}
                                     disabled={isGuest}
-                                    title={isGuest ? "Sign in to select other models" : "Select Model"}
                                     className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 
                                         ${isGuest ? 'cursor-not-allowed opacity-50' : (
                                             needsUserKey && !hasUserKey
@@ -1008,10 +1044,15 @@ const MainContent = () => {
                                     {(allModels.find(m => m.id === currentChatModelId))?.name || 'Select Model'}
                                     <ChevronDown size={14} />
                                 </button>
+                            </CustomTooltip>
+
+                            <CustomTooltip 
+                                text={isGuest ? "Sign in to enable real-time web search" : "Toggle Web Search"}
+                                isGuest={isGuest}
+                            >
                                 <button
                                     onClick={() => !isGuest && setIsWebSearchEnabled(!isWebSearchEnabled)}
                                     disabled={isGuest}
-                                    title={isGuest ? "Sign in to enable web search" : "Toggle Web Search"}
                                     className={`p-2 rounded-lg transition-colors relative ${isGuest ? 'cursor-not-allowed opacity-50' : (isWebSearchEnabled ? 'bg-blue-600/30 text-blue-400' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10')}`}
                                 >
                                     <Globe size={18} className={isWebSearchEnabled ? '' : "text-slate-600 dark:text-gray-400"} />
@@ -1021,22 +1062,28 @@ const MainContent = () => {
                                         </span>
                                     )}
                                 </button>
-                                <input
-                                    type="file"
-                                    ref={fileInputRef}
-                                    onChange={handleImageSelect}
-                                    accept="image/*"
-                                    className="hidden"
-                                    disabled={isGuest}
-                                />
+                            </CustomTooltip>
+
+                            <input
+                                type="file"
+                                ref={fileInputRef}
+                                onChange={handleImageSelect}
+                                accept="image/*"
+                                className="hidden"
+                                disabled={isGuest}
+                            />
+                            <CustomTooltip 
+                                text={isGuest ? "Sign in to upload and analyze images" : "Upload image"}
+                                isGuest={isGuest}
+                            >
                                 <button
                                     onClick={() => !isGuest && fileInputRef.current?.click()}
                                     disabled={isGuest}
-                                    title={isGuest ? "Sign in to upload images" : "Upload image"}
                                     className={`p-2 rounded-lg transition-colors ${isGuest ? 'cursor-not-allowed opacity-50' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}`}
                                 >
                                     <Paperclip size={18} className="text-slate-600 dark:text-gray-400" />
                                 </button>
+                            </CustomTooltip>
                         </div>
                             <button
                                 onClick={handleSendMessage}
