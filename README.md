@@ -95,7 +95,7 @@ cd allchat
 2. Install dependencies
 ```bash
 # Install frontend dependencies
-cd frontend
+cd allchat
 npm install
 
 # Install backend dependencies
