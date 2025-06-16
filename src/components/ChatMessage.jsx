@@ -67,14 +67,14 @@ const ChatMessage = ({
     };
 
     const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && e.ctrlKey) {
-            e.preventDefault();
-            handleSave();
-        }
-        if (e.key === 'Escape') {
-            e.preventDefault();
-            handleCancel();
-        }
+      if (e.key === 'Enter' && e.ctrlKey) {
+        e.preventDefault();
+        handleSave();
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleCancel();
+      }
     };
 
     return (
@@ -144,44 +144,44 @@ const ChatMessage = ({
                     </GlassPanel>
                 ) : (
                     <GlassPanel className="p-1 w-full" style={{ borderRadius: isUser ? '1rem 1rem 0 1rem' : '1rem 1rem 1rem 0' }}>
-                        <div className="prose prose-sm prose-slate dark:prose-invert prose-p:my-2 prose-headings:my-3 max-w-none px-3 py-1 text-slate-800 dark:text-white">
-                            <ReactMarkdown
-                                children={text}
-                                components={{
-                                    pre: ({ node, ...props }) => {
-                                        const codeNode = node.children[0];
-                                        if (codeNode && codeNode.tagName === 'code') {
-                                            const codeString = String(codeNode.children[0].value).replace(/\n$/, '');
-                                            return (
-                                                <div className="relative">
-                                                    <CopyButton textToCopy={codeString} />
-                                                    <pre {...props} className="bg-slate-800/50 rounded-lg" />
-                                                </div>
+                            <div className="prose prose-sm prose-slate dark:prose-invert prose-p:my-2 prose-headings:my-3 max-w-none px-3 py-1 text-slate-800 dark:text-white">
+                                <ReactMarkdown
+                                    children={text}
+                                    components={{
+                                        pre: ({ node, ...props }) => {
+                                            const codeNode = node.children[0];
+                                            if (codeNode && codeNode.tagName === 'code') {
+                                                const codeString = String(codeNode.children[0].value).replace(/\n$/, '');
+                                                return (
+                                                    <div className="relative">
+                                                        <CopyButton textToCopy={codeString} />
+                                                        <pre {...props} className="bg-slate-800/50 rounded-lg" />
+                                                    </div>
+                                                );
+                                            }
+                                            return <pre {...props} />;
+                                        },
+                                        code({ node, inline, className, children, ...props }) {
+                                            const match = /language-(\w+)/.exec(className || '');
+                                            return !inline && match ? (
+                                                <SyntaxHighlighter
+                                                    children={String(children).replace(/\n$/, '')}
+                                                    style={vscDarkPlus}
+                                                    language={match[1]}
+                                                    PreTag="div"
+                                                    wrapLongLines={true}
+                                                    codeTagProps={{ style: { fontFamily: 'inherit' } }}
+                                                    {...props}
+                                                />
+                                            ) : (
+                                                <code className="bg-slate-200 dark:bg-slate-700/50 px-1.5 py-0.5 rounded-md font-medium" {...props}>
+                                                    {children}
+                                                </code>
                                             );
                                         }
-                                        return <pre {...props} />;
-                                    },
-                                    code({ node, inline, className, children, ...props }) {
-                                        const match = /language-(\w+)/.exec(className || '');
-                                        return !inline && match ? (
-                                            <SyntaxHighlighter
-                                                children={String(children).replace(/\n$/, '')}
-                                                style={vscDarkPlus}
-                                                language={match[1]}
-                                                PreTag="div"
-                                                wrapLongLines={true}
-                                                codeTagProps={{ style: { fontFamily: 'inherit' } }}
-                                                {...props}
-                                            />
-                                        ) : (
-                                            <code className="bg-slate-200 dark:bg-slate-700/50 px-1.5 py-0.5 rounded-md font-medium" {...props}>
-                                                {children}
-                                            </code>
-                                        );
-                                    }
-                                }}
-                            />
-                        </div>
+                                    }}
+                                />
+                            </div>
 
                         {!isUser && text && (
                             <div className="px-3 pb-2 pt-2 mt-2 border-t border-white/10">
@@ -236,35 +236,35 @@ const ChatMessage = ({
                                 </div>
                             </div>
                         )}
-                    </GlassPanel>
+                        </GlassPanel>
                 )}
 
                 {isUser && !isEditing && (
-                    <div className="flex items-center justify-end gap-3 h-6 pr-1 pt-1">
+                        <div className="flex items-center justify-end gap-3 h-6 pr-1 pt-1">
                         {usedWebSearch && (
-                            <div className="flex items-center gap-1.5 text-xs text-blue-400">
-                                <Globe size={13} />
-                                <span>Web</span>
-                            </div>
-                        )}
-                        <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {editCount > 0 && (
-                                <span className="text-xs text-slate-500 dark:text-gray-500 italic">
-                                    (edited)
-                                </span>
+                                <div className="flex items-center gap-1.5 text-xs text-blue-400">
+                                    <Globe size={13} />
+                                    <span>Web</span>
+                                </div>
                             )}
-                            <button
-                                onClick={() => setIsEditing(true)}
-                                className="text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-white"
-                            >
-                                <Pencil size={14} />
-                            </button>
-                            <button
-                                onClick={() => handleDeleteMessage(id)}
-                                className="text-slate-500 hover:text-red-500 transition-colors"
-                            >
-                                <Trash2 size={14} />
-                            </button>
+                                <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {editCount > 0 && (
+                                        <span className="text-xs text-slate-500 dark:text-gray-500 italic">
+                                            (edited)
+                                        </span>
+                                    )}
+                                    <button
+                                        onClick={() => setIsEditing(true)}
+                                        className="text-slate-500 hover:text-slate-700 dark:text-gray-400 dark:hover:text-white"
+                                    >
+                                        <Pencil size={14} />
+                                    </button>
+                                    <button
+                                        onClick={() => handleDeleteMessage(id)}
+                                        className="text-slate-500 hover:text-red-500 transition-colors"
+                                    >
+                                        <Trash2 size={14} />
+                                    </button>
                         </div>
                     </div>
                 )}

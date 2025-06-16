@@ -21,16 +21,16 @@ async function uploadImage(base64Image) {
     form.append('image', base64Image);
 
     try {
-        const response = await fetch(`https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`, {
-            method: 'POST',
-            body: form,
-        });
-        const result = await response.json();
+    const response = await fetch(`https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`, {
+        method: 'POST',
+        body: form,
+    });
+    const result = await response.json();
         console.log('IMGBB response:', result.success, result.data?.url);
-        if (!result.success) {
-            throw new Error(result.error?.message || 'Failed to upload image.');
-        }
-        return result.data.url;
+    if (!result.success) {
+        throw new Error(result.error?.message || 'Failed to upload image.');
+    }
+    return result.data.url;
     } catch (error) {
         console.error('Error in uploadImage:', error);
         throw error;
@@ -40,14 +40,68 @@ async function uploadImage(base64Image) {
 export const getAllChats = (db) => async (req, res) => {
     const { userId } = getAuth(req);
     try {
-        const userChats = await db.query.chats.findMany({
+        // Fetch all chats for the user with their relationships
+        const allChats = await db.query.chats.findMany({
             where: eq(schema.chats.userId, userId),
-            orderBy: [desc(schema.chats.createdAt)],
+            orderBy: [
+                // First order by sourceChatId (null first, then by ID)
+                asc(schema.chats.sourceChatId),
+                // Then by branchedFromMessageId for branches
+                asc(schema.chats.branchedFromMessageId),
+                // Finally by creation date
+                desc(schema.chats.createdAt)
+            ],
+            with: {
+                // Include the source chat relationship if it exists
+                sourceChat: {
+                    columns: {
+                        id: true,
+                        title: true,
+                        modelId: true
+                    }
+                }
+            }
         });
-        res.json(userChats);
-    } catch (e) {
-        console.error('Failed to fetch chats:', e);
-        res.status(500).json({ error: 'Failed to fetch chats' });
+
+        // Group chats by their root chat (chat with no sourceChatId)
+        const chatGroups = new Map();
+        allChats.forEach(chat => {
+            let rootChatId = chat.id;
+            let currentChat = chat;
+            
+            // Find the root chat by traversing up the sourceChatId chain
+            while (currentChat.sourceChatId) {
+                const parentChat = allChats.find(c => c.id === currentChat.sourceChatId);
+                if (!parentChat) break;
+                rootChatId = parentChat.id;
+                currentChat = parentChat;
+            }
+            
+            if (!chatGroups.has(rootChatId)) {
+                chatGroups.set(rootChatId, []);
+            }
+            chatGroups.get(rootChatId).push(chat);
+        });
+
+        // Sort each group's branches by their branchedFromMessageId
+        chatGroups.forEach(group => {
+            group.sort((a, b) => {
+                if (!a.sourceChatId && !b.sourceChatId) {
+                    return new Date(b.createdAt) - new Date(a.createdAt);
+                }
+                if (!a.sourceChatId) return -1;
+                if (!b.sourceChatId) return 1;
+                return (a.branchedFromMessageId || 0) - (b.branchedFromMessageId || 0);
+            });
+        });
+
+        // Flatten the groups into a single array, maintaining the order
+        const sortedChats = Array.from(chatGroups.values()).flat();
+
+        res.json(sortedChats);
+    } catch (error) {
+        console.error("Error fetching chats:", error);
+        res.status(500).json({ error: "Failed to fetch chats." });
     }
 };
 
@@ -73,20 +127,71 @@ export const getChatMessages = (db) => async (req, res) => {
 
 export const deleteChat = (db) => async (req, res) => {
     const { userId } = getAuth(req);
-    const chatId = parseInt(req.params.chatId);
+    const { chatId } = req.params;
+    if (!chatId) return res.status(400).json({ error: "Chat ID is required." });
 
     try {
-        const [deletedChat] = await db.delete(schema.chats)
-            .where(and(eq(schema.chats.id, chatId), eq(schema.chats.userId, userId)))
-            .returning();
-        
-        if (!deletedChat) {
-             return res.status(404).json({ error: "Chat not found or you don't have permission to delete it." });
+        // First verify the chat exists and belongs to the user
+        const chatToDelete = await db.query.chats.findFirst({
+            where: and(
+                eq(schema.chats.id, parseInt(chatId)),
+                eq(schema.chats.userId, userId)
+            )
+        });
+
+        if (!chatToDelete) {
+            return res.status(404).json({ error: "Chat not found or you don't have permission to delete it." });
         }
-        res.status(200).json({ message: 'Chat deleted', deletedChatId: deletedChat.id });
+
+        // Get all child chats that will be affected
+        const childChats = await db.query.chats.findMany({
+            where: and(
+                eq(schema.chats.sourceChatId, parseInt(chatId)),
+                eq(schema.chats.userId, userId)
+            )
+        });
+
+        // Update child chats to become independent (remove sourceChatId)
+        // This must be done BEFORE deleting the parent chat due to foreign key constraints
+        if (childChats.length > 0) {
+            await db.update(schema.chats)
+                .set({
+                    sourceChatId: null,
+                    branchedFromMessageId: null,
+                    title: sql`CASE 
+                        WHEN ${schema.chats.title} LIKE '[Branch]%' 
+                        THEN SUBSTRING(${schema.chats.title} FROM 10) 
+                        ELSE ${schema.chats.title} 
+                    END`
+                })
+                .where(inArray(schema.chats.id, childChats.map(c => c.id)));
+        }
+
+        // Now that child chats are independent, we can safely delete the parent chat's messages
+        await db.delete(schema.messages)
+            .where(eq(schema.messages.chatId, parseInt(chatId)));
+        
+        // Finally delete the chat itself
+        await db.delete(schema.chats)
+            .where(and(
+                eq(schema.chats.id, parseInt(chatId)),
+                eq(schema.chats.userId, userId)
+            ));
+
+        res.json({ 
+            deletedChatId: parseInt(chatId),
+            promotedChats: childChats.map(c => c.id)
+        });
     } catch (error) {
-        console.error('Error deleting chat:', error);
-        res.status(500).json({ error: 'Failed to delete chat' });
+        console.error("Error deleting chat:", error);
+        // Provide more specific error message for foreign key constraint violations
+        if (error.cause?.code === '23503') {
+            res.status(409).json({ 
+                error: "Cannot delete chat because it has active branches. Please try again." 
+            });
+        } else {
+            res.status(500).json({ error: "Failed to delete chat." });
+        }
     }
 };
 
@@ -160,34 +265,40 @@ export const branchChat = (db) => async (req, res) => {
     if (!sourceChatId || !fromAiMessageId || !newModelId) return res.status(400).json({ error: "All IDs are required." });
 
     try {
+        // Get the source chat and verify ownership
         const sourceChat = await db.query.chats.findFirst({
             where: and(eq(schema.chats.id, sourceChatId), eq(schema.chats.userId, userId))
         });
         if (!sourceChat) return res.status(404).json({ error: "Source chat not found." });
 
+        // Get all messages up to and including the branch point
         const messagesToCopy = await db.query.messages.findMany({
             where: and(
                 eq(schema.messages.chatId, sourceChatId),
-                lt(schema.messages.id, fromAiMessageId + 1)
+                lte(schema.messages.id, fromAiMessageId)  // Changed from lt to lte to include the branch point
             ),
             orderBy: [asc(schema.messages.id)]
         });
         
         if (messagesToCopy.length === 0) throw new Error("No messages found to branch.");
 
+        // Create the new chat with proper relationship
         const newChatTitle = `[Branch] ${sourceChat.title}`.substring(0, 255);
         const [newChat] = await db.insert(schema.chats).values({
             userId,
             title: newChatTitle,
             modelId: newModelId,
             sourceChatId: parseInt(sourceChatId),
-            branchedFromMessageId: parseInt(fromAiMessageId)
+            branchedFromMessageId: parseInt(fromAiMessageId),
+            createdAt: new Date()  // Explicitly set creation time
         }).returning();
 
+        // Copy messages to the new chat
         const newMessages = messagesToCopy.map(msg => ({
             ...msg,
             id: undefined,
-            chatId: newChat.id
+            chatId: newChat.id,
+            createdAt: new Date()  // Ensure proper message ordering
         }));
         await db.insert(schema.messages).values(newMessages);
         
@@ -262,18 +373,18 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             currentChatId = newChat.id;
         }
 
-        
-        const [userMessage] = await db.insert(schema.messages).values({
-            chatId: currentChatId,
-            sender: 'user',
+
+        const [userMessage] = await db.insert(schema.messages).values({ 
+            chatId: currentChatId, 
+            sender: 'user', 
             content: messages[messages.length - 1].content,
             imageUrl: imageUrl, // Save the public URL of the image
             usedWebSearch: useWebSearch // Save whether web search was used
         }).returning();
 
-        const [aiMessage] = await db.insert(schema.messages).values({
-            chatId: currentChatId,
-            sender: 'ai',
+        const [aiMessage] = await db.insert(schema.messages).values({ 
+            chatId: currentChatId, 
+            sender: 'ai', 
             content: aiResponseContent,
             modelId: modelId
         }).returning();
@@ -298,8 +409,8 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
         // Step 1: Update the user's message in the database with the new content
         const [updatedUserMessage] = await db.update(schema.messages)
             .set({
-                content: newContent,
-                editCount: sql`${schema.messages.editCount} + 1`,
+            content: newContent,
+            editCount: sql`${schema.messages.editCount} + 1`,
             })
             .where(and(
                 eq(schema.messages.id, messageId),

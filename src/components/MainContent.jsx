@@ -213,7 +213,7 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                                                                     </span>
                                                                 )}
                                                                 <Info size={14} className="text-slate-500" />
-                                                            </div>
+            </div>
                                                             <CapabilityIcons capabilities={model.capabilities} />
                                                         </button>
                                                     ))}
@@ -221,13 +221,13 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                                             )
                                         })}
                                     </div>
-                                </GlassPanel>
+                    </GlassPanel>
                             </Dialog.Panel>
                         </Transition.Child>
                     </div>
                 </div>
             </Dialog>
-        </Transition>
+            </Transition>
     );
 };
 
@@ -668,22 +668,22 @@ const MainContent = () => {
                 }}
                 openSettings={() => setIsSettingsOpen(true)}
             />
-            <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30">
-                <header className="flex justify-end items-center p-4">
-                    <div className="flex items-center gap-4">
-                            <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
-                                <GlassPanel className="p-2 rounded-full cursor-pointer">
-                                    <Settings className="text-slate-500 dark:text-gray-400" size={20} />
-                                </GlassPanel>
-                            </div>
-                        <div className="transition-transform duration-200 ease-out hover:scale-110" onClick={toggleTheme}>
+        <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30">
+            <header className="flex justify-end items-center p-4">
+                <div className="flex items-center gap-4">
+                        <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
                             <GlassPanel className="p-2 rounded-full cursor-pointer">
-                                <span className="dark:hidden"><Moon size={20} className="text-slate-500" /></span>
-                                <span className="hidden dark:inline"><Sun size={20} className="text-gray-400" /></span>
+                                <Settings className="text-slate-500 dark:text-gray-400" size={20} />
                             </GlassPanel>
                         </div>
+                    <div className="transition-transform duration-200 ease-out hover:scale-110" onClick={toggleTheme}>
+                        <GlassPanel className="p-2 rounded-full cursor-pointer">
+                            <span className="dark:hidden"><Moon size={20} className="text-slate-500" /></span>
+                            <span className="hidden dark:inline"><Sun size={20} className="text-gray-400" /></span>
+                        </GlassPanel>
                     </div>
-                </header>
+                </div>
+            </header>
                 <div
                     ref={chatContainerRef}
                     className={`flex-1 overflow-y-auto w-full transition-opacity duration-150 ${isSwitching ? 'opacity-0' : 'opacity-100'}`}
@@ -699,17 +699,17 @@ const MainContent = () => {
                                     : null;
 
                                 return (
-                                    <ChatMessage
-                                        key={msg.id}
+                                <ChatMessage
+                                    key={msg.id}
                                         {...msg}
-                                        text={msg.content}
+                                    text={msg.content}
                                         modelId={modelIdForMessage}
                                         handleRegenerate={handleRegenerate}
                                         handleBranch={handleBranch}
-                                        handleUpdateMessage={handleEditAndResubmit}
-                                        handleDeleteMessage={handleDeleteMessage}
-                                        onImageClick={setViewingImageUrl}
-                                    />
+                                    handleUpdateMessage={handleEditAndResubmit}
+                                    handleDeleteMessage={handleDeleteMessage}
+                                    onImageClick={setViewingImageUrl}
+                                />
                                 );
                             })}
                     </AnimatePresence>
@@ -795,18 +795,18 @@ const MainContent = () => {
                                 >
                                     <Paperclip size={18} className="text-slate-600 dark:text-gray-400" />
                                 </button>
-                            </div>
+                        </div>
                             <button
                                 onClick={handleSendMessage}
                                 disabled={isLoading || (!currentMessage.trim() && !selectedImage)}
                                 className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedImage) && !isLoading ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}
                             >
-                                <ArrowUp size={20} />
-                            </button>
-                        </GlassPanel>
-                    </motion.div>
-                </div>
+                            <ArrowUp size={20} />
+                        </button>
+                    </GlassPanel>
+                </motion.div>
             </div>
+        </div>
         </>
     );
 };

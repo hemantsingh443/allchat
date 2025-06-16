@@ -8,7 +8,7 @@ export default function(db, genAI, tavily) {
     router.get('/chats/:chatId', getChatMessages(db));
     router.delete('/chats/:chatId', deleteChat(db));
     router.post('/chats/branch', branchChat(db));
-    
+   
     router.post('/chat', handleChat(db, genAI, tavily));
     router.post('/chat/regenerate', regenerateResponse(db, genAI, tavily));
     router.delete('/messages/:messageId', deleteMessage(db));
