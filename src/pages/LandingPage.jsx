@@ -25,7 +25,7 @@ const LandingPage = ({ onSignIn, onTryOut }) => {
             style={{ '--x': `${mousePos.x}px`, '--y': `${mousePos.y}px` }}
         >
             <GlassPanel className="p-10 text-center">
-                <h1 className="text-5xl font-bold text-slate-800 dark:text-gray-100">
+                <h1 className="text-4xl font-bold bg-gradient-to-r from-gray-600 via-gray-500 to-pink-300 dark:from-gray-300 dark:via-gray-200 dark:to-pink-200 bg-clip-text text-transparent">
                     Welcome to AllChat
                 </h1>
                 <p className="mt-4 mb-8 text-lg text-slate-600 dark:text-gray-300">
