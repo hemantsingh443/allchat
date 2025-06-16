@@ -2,20 +2,22 @@ import React, { useState, useCallback, useEffect, createContext, useContext } fr
 import Sidebar, { SidebarToggle } from './components/Sidebar';
 import MainContent from './components/MainContent';
 import { useAuth } from '@clerk/clerk-react';
-import { useNotification } from './contexts/NotificationContext'; 
+import { useNotification } from './contexts/NotificationContext';
+import MigrationModal from './components/MigrationModal';
 
 const AppContext = createContext();
 export const useAppContext = () => useContext(AppContext);
 
-const T3ChatUI = () => {
+const T3ChatUI = ({ isGuest, handleSignIn }) => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [chats, setChats] = useState([]);
     const [activeChatId, setActiveChatId] = useState(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
+    const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
 
     const { getToken } = useAuth();
     const memoizedGetToken = useCallback(getToken, [getToken]);
-    const { getConfirmation } = useNotification(); 
+    const { getConfirmation } = useNotification();
 
     // Mouse position effect for aurora animation
     useEffect(() => {
@@ -26,7 +28,18 @@ const T3ChatUI = () => {
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, []); // Empty dependency array is fine here since we're using setState
 
+    const triggerSignInFlow = () => {
+        setIsMigrationModalOpen(true);
+    };
+
+    const handleModalConfirmation = (shouldMigrate) => {
+        setIsMigrationModalOpen(false);
+        handleSignIn(shouldMigrate);
+    };
+
     const contextValue = {
+        isGuest,
+        handleSignIn: triggerSignInFlow,
         chats,
         setChats,
         activeChatId,
@@ -41,6 +54,11 @@ const T3ChatUI = () => {
 
     return (
         <AppContext.Provider value={contextValue}>
+            <MigrationModal 
+                isOpen={isMigrationModalOpen}
+                onConfirm={handleModalConfirmation}
+                onCancel={() => setIsMigrationModalOpen(false)}
+            />
             <div 
                 className="h-screen w-full font-sans overflow-hidden bg-white dark:bg-[#111015] interactive-aurora-bg"
                 style={{ 

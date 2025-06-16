@@ -21,6 +21,7 @@ export const messages = pgTable('messages', {
   usedWebSearch: boolean('used_web_search').default(false).notNull(),
   editCount: integer('edit_count').notNull().default(0),
   modelId: text('model_id'),
+  searchResults: text('search_results'), // Store search results as JSON string
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

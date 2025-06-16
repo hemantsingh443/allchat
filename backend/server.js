@@ -12,10 +12,10 @@ import createChatRoutes from './src/routes/chatRoutes.js';
 
 const app = express();
 
-// --- Middleware ---
+// Middleware
 app.use(express.json({ limit: '10mb' }));
 
-// Configure CORS
+// Configure CORS with proper origin
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' 
         ? 'https://allchat-topaz.vercel.app'
@@ -25,25 +25,42 @@ app.use(cors({
     credentials: true
 }));
 
-app.use(clerkMiddleware({ secretKey: process.env.CLERK_SECRET_KEY }));
-
-// --- Service Initializations ---
+// Service Initializations
 const sqlConnection = neon(process.env.DATABASE_URL);
 const db = drizzle(sqlConnection, { schema });
 const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
 const client = new tavily(process.env.TAVILY_API_KEY);
 
-// --- API Routing ---
+// API Routing
 const chatRoutes = createChatRoutes(db, genAI, client);
-app.use('/api', keyRoutes);
-app.use('/api', chatRoutes);
 
-// For local development
+// Mount guest routes BEFORE authentication middleware
+app.use('/api', chatRoutes.guestRouter);
+
+// Mount protected routes AFTER authentication middleware
+app.use('/api', clerkMiddleware({ 
+    secretKey: process.env.CLERK_SECRET_KEY,
+    // Add error handling for auth failures
+    onError: (err, req, res) => {
+        console.error('Auth middleware error:', err);
+        res.status(401).json({ error: 'Authentication failed' });
+    }
+}), chatRoutes.protectedRouter);
+
+app.use('/api', clerkMiddleware({ 
+    secretKey: process.env.CLERK_SECRET_KEY,
+    onError: (err, req, res) => {
+        console.error('Auth middleware error:', err);
+        res.status(401).json({ error: 'Authentication failed' });
+    }
+}), keyRoutes);
+
+// Development server
 if (process.env.NODE_ENV !== 'production') {
     const port = process.env.PORT || 5001;
-app.listen(port, () => {
-    console.log(`Server is running on http://localhost:${port}`);
-});
+    app.listen(port, () => {
+        console.log(`Server is running on http://localhost:${port}`);
+    });
 }
 
 // Export for Vercel

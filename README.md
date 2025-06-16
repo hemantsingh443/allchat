@@ -5,29 +5,50 @@ A modern, feature-rich AI chat application built as a T3Chat clone for the Clone
 ## 🚀 Features
 
 - 🤖 Multiple AI Model Support
-  - Google Gemini Pro
-  - Various OpenRouter models
-  - Easy model switching
-- 🔍 Web Search Integration
+  - Google Gemini 1.5 Flash & Pro
+  - Mistral AI 7B Instruct (Free)
+  - OpenAI GPT-4o, GPT-4 Turbo, GPT-3.5 Turbo
+  - Anthropic Claude 3 Opus & Sonnet
+  - Easy model switching with visual capabilities indicators
+  - Model branching for parallel conversations
+- 🔍 Advanced Web Search Integration
   - Real-time web search using Tavily API
-  - Context-aware responses
+  - Context-aware responses with search results
+  - Search results preserved during message regeneration
+  - YouTube video embedding in search results
+  - Collapsible search results panel
+  - Animated searching indicator
+- 💬 Rich Chat Features
+  - Message editing and deletion
+  - Message regeneration with different models
+  - Chat branching for parallel conversations
+  - Image upload and preview
+  - Code syntax highlighting
+  - Markdown support
+  - Guest mode with trial limit
+  - Guest chat migration to authenticated account
 - 🎨 Modern UI/UX
   - Glass-morphism design
   - Dark/Light mode
   - Responsive layout
-  - Smooth animations
-- 💬 Rich Chat Features
-  - Message editing and deletion
-  - Image upload and preview
-  - Code syntax highlighting
-  - Markdown support
-- 🔐 Authentication
+  - Smooth animations with Framer Motion
+  - Welcome screen with suggestion cards
+  - Scroll-to-bottom button
+  - Loading and searching indicators
+  - Message capability icons
+  - Copy message functionality
+- 🔐 Authentication & Security
   - Secure user authentication with Clerk
   - Protected routes and API endpoints
+  - API key management for different services
+  - Guest mode with limited functionality
 - 🛠️ Developer Features
   - Custom API key management
   - Model selection interface
   - Real-time chat status indicators
+  - Database migrations with Drizzle ORM
+  - Environment variable configuration
+  - Vercel deployment support
 
 ## 🛠️ Tech Stack
 
@@ -37,15 +58,18 @@ A modern, feature-rich AI chat application built as a T3Chat clone for the Clone
   - Framer Motion
   - Headless UI
   - Clerk Authentication
+  - React Markdown
+  - React Syntax Highlighter
 - **Backend**
   - Node.js
   - Express
   - Drizzle ORM
-  - PostgreSQL
+  - PostgreSQL (Neon Serverless)
 - **AI/APIs**
   - Google Gemini
   - OpenRouter
   - Tavily Search
+  - Clerk Auth
 
 ## 🚀 Getting Started
 
@@ -53,7 +77,7 @@ A modern, feature-rich AI chat application built as a T3Chat clone for the Clone
 
 - Node.js (v16 or higher)
 - npm or yarn
-- PostgreSQL (v14 or higher)
+- PostgreSQL (v14 or higher) or Neon Serverless Database
 - API keys for:
   - Google Gemini
   - OpenRouter (optional)
@@ -93,11 +117,17 @@ PORT=5001
 CLERK_SECRET_KEY=your_clerk_secret
 GOOGLE_API_KEY=your_google_key
 TAVILY_API_KEY=your_tavily_key
-IMGBB_API_KEY=your_imgbb_key
+OPENROUTER_API_KEY=your_openrouter_key
 DATABASE_URL=postgresql://username:password@localhost:5432/allchat
 ```
 
-4. Start the development servers
+4. Run database migrations
+```bash
+cd backend
+npm run db:push
+```
+
+5. Start the development servers
 
 ```bash
 # Start backend (from backend directory)
@@ -109,13 +139,16 @@ npm start
 
 ## 📝 Usage
 
-1. Sign in using Clerk authentication
+1. Sign in using Clerk authentication or try guest mode
 2. (Optional) Add your API keys in the settings
 3. Start chatting with the AI
 4. Use the model selector to switch between different AI models
 5. Enable web search for real-time information
 6. Upload images for visual context
-7. Edit or delete messages as needed
+7. Edit, delete, or regenerate messages as needed
+8. Branch conversations to try different models
+9. View and interact with search results
+10. Migrate guest chats to your authenticated account
 
 ## 🤝 Contributing
 
@@ -124,30 +157,6 @@ This project was created for the Cloneathon competition. While it's primarily a 
 ## 📄 License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-```
-MIT License
-
-Copyright (c) 2024 AllChat
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
 
 ## 🙏 Acknowledgments
 
@@ -163,4 +172,4 @@ For any questions or feedback, please open an issue in the repository.
 
 ---
 
-Made with ❤️ as a T3Chat clone for the Cloneathon competition 
+Made with ❤️ as a T3Chat clone for the Cloneathon competition

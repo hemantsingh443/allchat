@@ -13,8 +13,13 @@ import { Transition, Dialog } from '@headlessui/react';
 import { useApiKeys } from '../contexts/ApiKeyContext';
 import { allModels, modelCategories } from '../data/models';
 import { useNotification } from '../contexts/NotificationContext';
+import SearchResults from './SearchResults';
+import ScrollToBottomButton from './ScrollToBottomButton';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+
+const GUEST_TRIAL_LIMIT = 5;
+const GUEST_TRIAL_COUNT_KEY = 'allchat-guest-trials';
 
 const SettingsModal = ({ isOpen, onClose }) => {
     const { userKeys, updateApiKey } = useApiKeys();
@@ -160,7 +165,7 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
     const { addNotification } = useNotification();
 
     const handleSelectModel = (model) => {
-        if (model.id.startsWith('google/') || userKeys.openrouter) {
+        if (model.id.startsWith('google/') || userKeys.openrouter || model.isFree) {
             setSelectedModel(model.id);
             onClose();
         } else {
@@ -332,13 +337,44 @@ const ImageViewerModal = ({ imageUrl, onClose }) => (
     </Transition>
 );
 
+const SearchingIndicator = () => {
+    const dots = {
+        hidden: { opacity: 0 },
+        visible: (i) => ({
+            opacity: 1,
+            transition: { delay: i * 0.2, repeat: Infinity, repeatType: "reverse", duration: 0.6 }
+        })
+    };
+    return (
+        <motion.div 
+            className="flex justify-start my-4"
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+        >
+            <GlassPanel className="p-3">
+                <div className="flex items-center gap-3 text-slate-500 dark:text-gray-400 text-sm">
+                    <Globe size={16} />
+                    <span>Searching the web</span>
+                    <motion.div className="flex gap-1">
+                        {[0, 1, 2].map(i => 
+                            <motion.div key={i} custom={i} variants={dots} initial="hidden" animate="visible" className="w-1 h-1 bg-slate-500 dark:bg-gray-400 rounded-full" />
+                        )}
+                    </motion.div>
+                </div>
+            </GlassPanel>
+        </motion.div>
+    );
+};
+
 const MainContent = () => {
-    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation } = useAppContext();
+    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, isGuest, handleSignIn } = useAppContext();
     const { userKeys } = useApiKeys();
     const { addNotification } = useNotification();
 
     const [messages, setMessages] = useState([]);
     const [currentMessage, setCurrentMessage] = useState('');
+    const [newChatModelId, setNewChatModelId] = useState('google/gemini-1.5-flash-latest');
     const [isLoading, setIsLoading] = useState(false);
     const [isSwitching, setIsSwitching] = useState(false);
     const [isSearchingWeb, setIsSearchingWeb] = useState(false);
@@ -351,32 +387,75 @@ const MainContent = () => {
     const fileInputRef = useRef(null);
     const chatContainerRef = useRef(null);
 
+    const [guestTrials, setGuestTrials] = useState(() => {
+        const stored = localStorage.getItem(GUEST_TRIAL_COUNT_KEY);
+        return stored ? parseInt(stored, 10) : 0;
+    });
+
+    useEffect(() => {
+        if (isGuest) {
+            localStorage.setItem(GUEST_TRIAL_COUNT_KEY, guestTrials);
+        }
+    }, [guestTrials, isGuest]);
+
+    const checkGuestTrial = () => {
+        if (guestTrials >= GUEST_TRIAL_LIMIT) {
+            addNotification('You have reached the guest trial limit. Please sign in to continue.', 'error');
+            setTimeout(handleSignIn, 1500);
+            return false;
+        }
+        const newCount = guestTrials + 1;
+        setGuestTrials(newCount);
+        if (GUEST_TRIAL_LIMIT - newCount <= 2 && GUEST_TRIAL_LIMIT - newCount > 0) {
+            addNotification(`You have ${GUEST_TRIAL_LIMIT - newCount} trials remaining.`, 'info');
+        }
+        return true;
+    };
+
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
-    const currentChatModelId = activeChat?.modelId || 'google/gemini-1.5-flash-latest';
+    const currentChatModelId = activeChat?.modelId || newChatModelId;
+    
+    const currentModelDetails = allModels.find(m => m.id === currentChatModelId);
+    const needsUserKey = currentModelDetails && !currentModelDetails.id.startsWith('google/') && !currentModelDetails.isFree;
+    const hasUserKey = !!userKeys.openrouter;
 
     const fetchMessages = useCallback(async (chatId) => {
         if (!chatId) {
             setMessages([]);
             setIsLoading(false);
+            setIsSwitching(false);
             return;
         }
+
         setIsSwitching(true);
-            try {
-                const token = await getToken();
+
+        if (isGuest) {
+            const guestChat = chats.find(c => c.id === chatId);
+            setMessages(guestChat?.messages || []);
+            setTimeout(() => setIsSwitching(false), 50);
+            return;
+        }
+        
+        try {
+            const token = await getToken();
             const res = await fetch(`${API_URL}/api/chats/${chatId}`, {
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-                if (!res.ok) throw new Error("Failed to fetch messages.");
-                const data = await res.json();
-            setMessages(data.map(msg => ({ ...msg, text: msg.content })));
-            } catch (error) {
-                console.error(error);
-                addNotification(error.message, 'error');
-                setMessages([{ id: 'error', text: 'Could not load this chat.', sender: 'ai' }]);
-            } finally {
+            if (!res.ok) throw new Error("Failed to fetch messages.");
+            const data = await res.json();
+            setMessages(data.map(msg => ({ 
+                ...msg, 
+                text: msg.content,
+                searchResults: msg.searchResults || null
+            })));
+        } catch (error) {
+            console.error(error);
+            addNotification(error.message, 'error');
+            setMessages([{ id: 'error', text: 'Could not load this chat.', sender: 'ai' }]);
+        } finally {
             setTimeout(() => setIsSwitching(false), 150);
         }
-    }, [getToken, addNotification]);
+    }, [isGuest, chats, getToken, addNotification]);
 
     useEffect(() => {
         fetchMessages(activeChatId);
@@ -389,6 +468,44 @@ const MainContent = () => {
     }, [messages]);
 
     const handleEditAndResubmit = async (messageId, newContent) => {
+        if (isGuest) {
+            if (!checkGuestTrial()) return;
+
+            const messageIndex = messages.findIndex(m => m.id === messageId);
+            if (messageIndex === -1) return;
+            
+            const history = messages.slice(0, messageIndex);
+            const updatedUserMessage = { ...messages[messageIndex], content: newContent };
+            
+            setMessages([...history, updatedUserMessage]);
+            setIsLoading(true);
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat/guest`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: [...history, updatedUserMessage] }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+
+                const aiMessage = { 
+                    id: `guest-msg-${Date.now() + 1}`, 
+                    content: data.content, 
+                    sender: 'ai', 
+                    createdAt: new Date().toISOString() 
+                };
+                setMessages(prev => [...prev, aiMessage]);
+
+            } catch (error) {
+                addNotification(`Error: ${error.message}`, 'error');
+                setMessages(messages);
+            } finally {
+                setIsLoading(false);
+            }
+            return;
+        }
+
         setIsLoading(true);
         const editIndex = messages.findIndex(m => m.id === messageId);
         if (editIndex !== -1) {
@@ -439,7 +556,79 @@ const MainContent = () => {
 
     const handleSendMessage = async () => {
         if ((!currentMessage.trim() && !selectedImage) || isLoading) return;
-        
+
+        if (isGuest) {
+            if (selectedImage) {
+                addNotification('Image uploads are not available in guest mode. Please sign in.', 'error');
+                return;
+            }
+            if (isWebSearchEnabled) {
+                addNotification('Web search is not available in guest mode. Please sign in.', 'error');
+                return;
+            }
+            if (!checkGuestTrial()) return;
+
+            const userMessageContent = currentMessage;
+            const optimisticUserMessage = { 
+                id: `guest-msg-${Date.now()}`, 
+                content: userMessageContent, 
+                sender: 'user', 
+                createdAt: new Date().toISOString() 
+            };
+            const history = [...messages, optimisticUserMessage];
+            
+            setMessages(history);
+            setCurrentMessage('');
+            setIsLoading(true);
+
+            try {
+                const res = await fetch(`${API_URL}/api/chat/guest`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages: history }),
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error);
+
+                const aiMessage = { 
+                    id: `guest-msg-${Date.now() + 1}`, 
+                    content: data.content, 
+                    sender: 'ai', 
+                    createdAt: new Date().toISOString() 
+                };
+
+                if (activeChatId) {
+                    setChats(prevChats => 
+                        prevChats.map(chat => 
+                            chat.id === activeChatId 
+                                ? { ...chat, messages: [...history, aiMessage] } 
+                                : chat
+                        )
+                    );
+                } else {
+                    const newChatId = `guest-chat-${Date.now()}`;
+                    const newChat = {
+                        id: newChatId,
+                        title: userMessageContent.substring(0, 30) || "New Guest Chat",
+                        createdAt: new Date().toISOString(),
+                        modelId: 'google/gemini-1.5-flash-latest',
+                        messages: [...history, aiMessage],
+                    };
+                    setChats(prevChats => [newChat, ...prevChats]);
+                    setActiveChatId(newChatId);
+                }
+                
+                setMessages(prev => [...prev, aiMessage]);
+
+            } catch (error) {
+                addNotification(`Error: ${error.message}`, 'error');
+                setMessages(messages);
+            } finally {
+                setIsLoading(false);
+            }
+            return;
+        }
+
         const messageToSend = currentMessage;
         const oldMessages = [...messages];
 
@@ -500,7 +689,10 @@ const MainContent = () => {
             };
             const finalAiMessage = {
                 ...data.aiMessage,
-                text: data.aiMessage.content
+                text: data.aiMessage.content,
+                content: data.aiMessage.content,
+                searchResults: data.searchResults || null,
+                modelId: currentChatModelId
             };
 
             if (data.newChat) {
@@ -565,6 +757,17 @@ const MainContent = () => {
     };
 
     const handleRegenerate = async (aiMessageIdToReplace, newModelId) => {
+        if (isGuest) {
+            if (!checkGuestTrial()) return;
+            
+            const aiMessageIndex = messages.findIndex(m => m.id === aiMessageIdToReplace);
+            if (aiMessageIndex < 1) return;
+            const userPromptMessage = messages[aiMessageIndex - 1];
+            
+            handleEditAndResubmit(userPromptMessage.id, userPromptMessage.content);
+            return;
+        }
+
         const aiMessageIndex = messages.findIndex(m => m.id === aiMessageIdToReplace);
         if (aiMessageIndex < 1) return;
         const userPromptMessage = messages[aiMessageIndex - 1];
@@ -573,6 +776,12 @@ const MainContent = () => {
         const messagesBeforeRegen = messages.slice(0, aiMessageIndex);
         setMessages(messagesBeforeRegen);
         setIsLoading(true);
+
+        // Check if the original message used web search
+        const shouldUseWebSearch = userPromptMessage.usedWebSearch;
+        if (shouldUseWebSearch) {
+            setIsSearchingWeb(true);
+        }
 
         try {
             const token = await getToken();
@@ -585,6 +794,8 @@ const MainContent = () => {
                     chatId: activeChatId,
                     modelId: newModelId || currentChatModelId,
                     userApiKey: userKeys.openrouter,
+                    useWebSearch: shouldUseWebSearch,
+                    userTavilyKey: userKeys.tavily
                 })
             });
 
@@ -595,21 +806,49 @@ const MainContent = () => {
                 ...data.newAiMessage,
                 modelId: newModelId || currentChatModelId,
                 text: data.newAiMessage.content,
-                content: data.newAiMessage.content
+                content: data.newAiMessage.content,
+                searchResults: data.searchResults || null
             };
             
             setMessages([...messagesBeforeRegen, newAiMessage]);
-
         } catch (error) {
+            console.error("Regeneration failed:", error);
             addNotification(error.message, 'error');
             setMessages(originalMessages);
         } finally {
             setIsLoading(false);
+            setIsSearchingWeb(false);
         }
     };
 
     const handleBranch = async (fromAiMessageId, newModelId) => {
-        // Don't set loading state immediately to avoid the bubble
+        if (isGuest) {
+            const sourceChat = chats.find(c => c.id === activeChatId);
+            if (!sourceChat) return;
+
+            const messageIndex = sourceChat.messages.findIndex(m => m.id === fromAiMessageId);
+            if (messageIndex === -1) return;
+
+            const messagesToCopy = sourceChat.messages.slice(0, messageIndex + 1);
+
+            const newChatId = `guest-chat-${Date.now()}`;
+            const newChat = {
+                id: newChatId,
+                title: `[Branch] ${sourceChat.title}`.substring(0, 30),
+                createdAt: new Date().toISOString(),
+                modelId: 'google/gemini-1.5-flash-latest', 
+                messages: messagesToCopy,
+                sourceChatId: sourceChat.id,
+                branchedFromMessageId: fromAiMessageId,
+            };
+
+            setChats(prev => [newChat, ...prev]);
+            setActiveChatId(newChatId);
+
+            addNotification(`Branched to a new guest chat.`, "success");
+            return;
+        }
+
         try {
             const token = await getToken();
             const res = await fetch(`${API_URL}/api/chats/branch`, {
@@ -624,30 +863,28 @@ const MainContent = () => {
             });
             if (!res.ok) throw new Error((await res.json()).error || "Failed to branch chat.");
 
-            const newChat = await res.json();
+            const newChatData = await res.json();
             
-            // Add sourceChatId to track branching relationship
             const newChatWithSource = {
-                ...newChat,
+                ...newChatData,
                 sourceChatId: activeChatId,
                 branchedFromMessageId: fromAiMessageId
             };
             
-            setChats(prev => {
-                const updatedChats = prev.map(c => {
-                    if (c.id === activeChatId) {
-                        return c;
-                    }
-                    return c;
-                });
-                return [newChatWithSource, ...updatedChats];
-            });
-
-            setActiveChatId(newChat.id);
+            setChats(prev => [newChatWithSource, ...prev]);
+            setActiveChatId(newChatData.id);
 
             addNotification(`Branched to new chat with ${allModels.find(m=>m.id===newModelId)?.name || 'new model'}.`, "success");
         } catch (error) {
             addNotification(error.message, 'error');
+        }
+    };
+
+    const handleGuestModelSelect = () => {
+        if (isGuest) {
+            addNotification("Model selection is not available in guest mode. Please sign in to use other models.", "error");
+        } else {
+            setIsModelSelectorOpen(true);
         }
     };
 
@@ -660,30 +897,41 @@ const MainContent = () => {
                 onClose={() => setIsModelSelectorOpen(false)}
                 selectedModel={currentChatModelId}
                 setSelectedModel={(newModelId) => {
+                    const model = allModels.find(m => m.id === newModelId);
+
                     if (activeChat) {
                         setChats(prev => prev.map(c => 
                             c.id === activeChatId ? {...c, modelId: newModelId} : c
                         ));
+                    } else {
+                        setNewChatModelId(newModelId);
+                    }
+                    
+                    if (model && model.isFree) {
+                        addNotification(
+                            'Mistral model selected. This uses a built-in key provided by the app.',
+                            'success'
+                        );
                     }
                 }}
                 openSettings={() => setIsSettingsOpen(true)}
             />
-        <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30">
-            <header className="flex justify-end items-center p-4">
-                <div className="flex items-center gap-4">
-                        <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
+            <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30 relative">
+                <header className="flex justify-end items-center p-4">
+                    <div className="flex items-center gap-4">
+                            <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
+                                <GlassPanel className="p-2 rounded-full cursor-pointer">
+                                    <Settings className="text-slate-500 dark:text-gray-400" size={20} />
+                                </GlassPanel>
+                            </div>
+                        <div className="transition-transform duration-200 ease-out hover:scale-110" onClick={toggleTheme}>
                             <GlassPanel className="p-2 rounded-full cursor-pointer">
-                                <Settings className="text-slate-500 dark:text-gray-400" size={20} />
+                                <span className="dark:hidden"><Moon size={20} className="text-slate-500" /></span>
+                                <span className="hidden dark:inline"><Sun size={20} className="text-gray-400" /></span>
                             </GlassPanel>
                         </div>
-                    <div className="transition-transform duration-200 ease-out hover:scale-110" onClick={toggleTheme}>
-                        <GlassPanel className="p-2 rounded-full cursor-pointer">
-                            <span className="dark:hidden"><Moon size={20} className="text-slate-500" /></span>
-                            <span className="hidden dark:inline"><Sun size={20} className="text-gray-400" /></span>
-                        </GlassPanel>
                     </div>
-                </div>
-            </header>
+                </header>
                 <div
                     ref={chatContainerRef}
                     className={`flex-1 overflow-y-auto w-full transition-opacity duration-150 ${isSwitching ? 'opacity-0' : 'opacity-100'}`}
@@ -693,45 +941,32 @@ const MainContent = () => {
                             <WelcomeScreen />
                     )}
                     <AnimatePresence>
-                            {messages.map((msg, index) => {
-                                const modelIdForMessage = msg.sender === 'ai' 
-                                    ? (msg.modelId || activeChat?.modelId)
-                                    : null;
-
-                                return (
+                            {messages.map((msg) => (
                                 <ChatMessage
                                     key={msg.id}
-                                        {...msg}
+                                    {...msg}
                                     text={msg.content}
-                                        modelId={modelIdForMessage}
-                                        handleRegenerate={handleRegenerate}
-                                        handleBranch={handleBranch}
+                                    modelId={msg.sender === 'ai' ? (msg.modelId || activeChat?.modelId) : null}
+                                    handleRegenerate={handleRegenerate}
+                                    handleBranch={handleBranch}
                                     handleUpdateMessage={handleEditAndResubmit}
                                     handleDeleteMessage={handleDeleteMessage}
                                     onImageClick={setViewingImageUrl}
                                 />
-                                );
-                            })}
+                            ))}
                     </AnimatePresence>
 
-                        {isSearchingWeb && (
-                            <div className="flex justify-start">
-                                <GlassPanel className="p-3">
-                                    <div className="flex items-center gap-2 text-slate-500 dark:text-gray-400 text-sm">
-                                        <Globe size={16} className="animate-pulse" />
-                                        <span>Searching the web...</span>
-                                    </div>
-                                </GlassPanel>
-                            </div>
-                        )}
+                        <AnimatePresence>
+                            {isSearchingWeb && <SearchingIndicator key="searching" />}
+                        </AnimatePresence>
 
                         {isLoading && !isSearchingWeb && (
                         <div className="flex justify-start">
                                 <GlassPanel className="p-3">
                                     <div className="flex items-center gap-2 text-slate-600 dark:text-gray-400">
                                         <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce"></div>
-                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce delay-200"></div>
-                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce delay-300"></div>
+                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce [animation-delay:0.2s]"></div>
+                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce [animation-delay:0.4s]"></div>
                                     </div>
                                 </GlassPanel>
                         </div>
@@ -753,29 +988,34 @@ const MainContent = () => {
                                 value={currentMessage}
                                 onChange={(e) => setCurrentMessage(e.target.value)}
                                 onKeyDown={handleKeyDown}
-                            placeholder="Type your message here..."
+                            placeholder={isGuest ? `Guest Mode (${GUEST_TRIAL_LIMIT - guestTrials} trials left)` : "Type your message here..."}
                             className="flex-1 bg-transparent px-3 py-2 text-md text-slate-700 placeholder:text-slate-500 dark:text-gray-300 dark:placeholder:text-gray-500 focus:outline-none"
                             disabled={isLoading}
                         />
                         <div className="flex items-center gap-1">
                                 <button
-                                    onClick={() => setIsModelSelectorOpen(true)}
-                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 ${
-                                        currentChatModelId.startsWith('google/') 
-                                            ? 'ring-transparent' 
-                                            : (userKeys.openrouter ? 'ring-blue-500/80' : 'ring-red-500/80')
-                                    }`}
+                                    onClick={handleGuestModelSelect}
+                                    disabled={isGuest}
+                                    title={isGuest ? "Sign in to select other models" : "Select Model"}
+                                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 
+                                        ${isGuest ? 'cursor-not-allowed opacity-50' : (
+                                            needsUserKey && !hasUserKey
+                                                ? 'ring-red-500/80'
+                                                : (needsUserKey && hasUserKey ? 'ring-blue-500/80' : 'ring-transparent')
+                                        )}
+                                    `}
                                 >
                                     {(allModels.find(m => m.id === currentChatModelId))?.name || 'Select Model'}
                                     <ChevronDown size={14} />
                                 </button>
                                 <button
-                                    onClick={() => setIsWebSearchEnabled(!isWebSearchEnabled)}
-                                    className={`p-2 rounded-lg transition-colors relative ${isWebSearchEnabled ? 'bg-blue-600/30 text-blue-400' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}`}
-                                    title="Toggle Web Search"
+                                    onClick={() => !isGuest && setIsWebSearchEnabled(!isWebSearchEnabled)}
+                                    disabled={isGuest}
+                                    title={isGuest ? "Sign in to enable web search" : "Toggle Web Search"}
+                                    className={`p-2 rounded-lg transition-colors relative ${isGuest ? 'cursor-not-allowed opacity-50' : (isWebSearchEnabled ? 'bg-blue-600/30 text-blue-400' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10')}`}
                                 >
                                     <Globe size={18} className={isWebSearchEnabled ? '' : "text-slate-600 dark:text-gray-400"} />
-                                    {isWebSearchEnabled && (
+                                    {!isGuest && isWebSearchEnabled && (
                                         <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-blue-500 text-white rounded-full px-1 py-0 leading-tight">
                                             {userKeys.tavily ? 'P' : 'D'}
                                         </span>
@@ -787,11 +1027,13 @@ const MainContent = () => {
                                     onChange={handleImageSelect}
                                     accept="image/*"
                                     className="hidden"
+                                    disabled={isGuest}
                                 />
                                 <button
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="p-2 rounded-lg transition-colors bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10"
-                                    title="Upload image"
+                                    onClick={() => !isGuest && fileInputRef.current?.click()}
+                                    disabled={isGuest}
+                                    title={isGuest ? "Sign in to upload images" : "Upload image"}
+                                    className={`p-2 rounded-lg transition-colors ${isGuest ? 'cursor-not-allowed opacity-50' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}`}
                                 >
                                     <Paperclip size={18} className="text-slate-600 dark:text-gray-400" />
                                 </button>
@@ -807,6 +1049,7 @@ const MainContent = () => {
                 </motion.div>
             </div>
         </div>
+        <ScrollToBottomButton containerRef={chatContainerRef} />
         </>
     );
 };

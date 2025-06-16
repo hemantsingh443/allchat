@@ -1,15 +1,43 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight } from 'lucide-react';
 import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
 import { allModels } from '../data/models';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
+const GUEST_STORAGE_KEY = 'allchat-guest-history';
+
+// Add helper function for chat time categorization
+const getChatTimeCategory = (chatDate) => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const lastWeek = new Date(today);
+    lastWeek.setDate(lastWeek.getDate() - 7);
+    const lastMonth = new Date(today);
+    lastMonth.setMonth(lastMonth.getMonth() - 1);
+
+    if (chatDate >= today) return "Today";
+    if (chatDate >= yesterday) return "Yesterday";
+    if (chatDate >= lastWeek) return "Previous 7 Days";
+    if (chatDate >= lastMonth) return "Previous 30 Days";
+    
+    return chatDate.toLocaleString('default', { month: 'long', year: 'numeric' });
+};
+
+// Add category header component
+const CategoryHeader = ({ title }) => (
+    <div className="px-2 pt-4 pb-1 text-xs font-bold text-slate-500 dark:text-gray-500 uppercase tracking-wider">
+        {title}
+    </div>
+);
 
 const Sidebar = ({ isOpen, toggle }) => {
-    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation } = useAppContext();
+    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, isGuest, handleSignIn } = useAppContext();
     const [hoveredChatId, setHoveredChatId] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
 
     // Memoize the chat map for efficient lookups
     const chatMap = useMemo(() => 
@@ -70,6 +98,19 @@ const Sidebar = ({ isOpen, toggle }) => {
         return currentChat;
     }, [chatMap]);
 
+    // Add filtered chats memo
+    const filteredChats = useMemo(() => {
+        if (!chats) return [];
+        if (!searchTerm.trim()) return chats;
+
+        const lowercasedTerm = searchTerm.toLowerCase();
+        return chats.filter(chat => 
+            chat.title.toLowerCase().includes(lowercasedTerm)
+        );
+    }, [chats, searchTerm]);
+
+    let lastCategory = null;
+
     useEffect(() => {
         const fetchChats = async () => {
             try {
@@ -79,32 +120,56 @@ const Sidebar = ({ isOpen, toggle }) => {
                 });
                 if (!res.ok) throw new Error("Failed to fetch chats");
                 const data = await res.json();
-                // The backend now returns properly sorted chats
                 setChats(data);
             } catch (error) { 
                 console.error("Failed to fetch chats:", error);
             }
         };
-        if (getToken) fetchChats();
-    }, [getToken, setChats]);
+        
+        const loadGuestChats = () => {
+            try {
+                const storedChats = localStorage.getItem(GUEST_STORAGE_KEY);
+                if (storedChats) {
+                    setChats(JSON.parse(storedChats));
+                }
+            } catch (e) {
+                console.error("Failed to load guest chats from localStorage", e);
+            }
+        };
+
+        if (isGuest) {
+            loadGuestChats();
+        } else {
+            if (getToken) fetchChats();
+        }
+    }, [isGuest, getToken, setChats]);
+
+    useEffect(() => {
+        if (isGuest) {
+            localStorage.setItem(GUEST_STORAGE_KEY, JSON.stringify(chats));
+        }
+    }, [chats, isGuest]);
 
     const handleNewChat = () => { setActiveChatId(null); };
 
     const handleDeleteChat = async (chatId, e) => {
         e.stopPropagation();
 
-        const descendants = getDescendantChatIds(chatId);
-        const hasBranches = descendants.size > 0;
-
         const confirmed = await getConfirmation({
             title: "Delete Chat",
-            description: hasBranches 
-                ? "This chat has branches. Deleting it will make the branches independent. Are you sure?"
-                : "Are you sure you want to permanently delete this chat history?",
+            description: "Are you sure you want to permanently delete this chat history?",
             confirmText: "Delete Chat"
         });
-
         if (!confirmed) return;
+
+        if (isGuest) {
+            const newChats = chats.filter(c => c.id !== chatId);
+            setChats(newChats);
+            if (activeChatId === chatId) {
+                setActiveChatId(null);
+            }
+            return;
+        }
 
         try {
             const token = await getToken();
@@ -115,10 +180,7 @@ const Sidebar = ({ isOpen, toggle }) => {
             
             if (res.ok) {
                 const data = await res.json();
-                
-                // Immediately update the UI without waiting for refresh
                 setChats(prev => {
-                    // First, update any promoted chats
                     const updatedChats = prev.map(chat => {
                         if (data.promotedChats?.includes(chat.id)) {
                             return {
@@ -132,12 +194,9 @@ const Sidebar = ({ isOpen, toggle }) => {
                         }
                         return chat;
                     });
-
-                    // Then remove the deleted chat
                     return updatedChats.filter(c => c.id !== data.deletedChatId);
                 });
 
-                // If the active chat was deleted, clear it
                 if (activeChatId === data.deletedChatId) {
                     setActiveChatId(null);
                 }
@@ -166,20 +225,51 @@ const Sidebar = ({ isOpen, toggle }) => {
                             <Plus size={16} />
                             New Chat
                         </button>
+                        {isGuest && (
+                            <div className="flex items-center justify-center w-12 h-6 bg-gradient-to-r from-pink-300 to-blue-300 dark:from-pink-400 dark:to-blue-400 rounded-full">
+                                <span className="text-xs font-medium text-white">Guest</span>
+                            </div>
+                        )}
                     </div>
                     <div className="flex items-center gap-2">
-                        <UserButton afterSignOutUrl='/' />
-                            <button
-                                onClick={toggle}
+                        {!isGuest && <UserButton afterSignOutUrl='/' />}
+                        <button
+                            onClick={toggle}
                             className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                            >
+                        >
                             <PanelLeftOpen size={18} className="text-slate-500 dark:text-gray-400" />
-                            </button>
+                        </button>
                     </div>
                 </div>
-                <div className="flex-1 overflow-y-auto space-y-2 px-4 pb-4 custom-scrollbar">
+
+                {/* Add search bar */}
+                <div className="px-4 pb-2">
+                    <div className="relative">
+                        <input
+                            type="text"
+                            placeholder="Search..."
+                            value={searchTerm}
+                            onChange={(e) => setSearchTerm(e.target.value)}
+                            className="w-full pl-9 pr-3 py-1.5 text-sm rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-blue-500/50 focus:ring-0 outline-none text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400"
+                        />
+                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                            <Search size={16} className="text-slate-500 dark:text-gray-400" />
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto space-y-1 px-4 pb-4 custom-scrollbar">
                     <AnimatePresence>
-                        {chats.map(chat => {
+                        {filteredChats.map(chat => {
+                            // Add category logic
+                            const currentCategory = getChatTimeCategory(new Date(chat.createdAt));
+                            let categoryHeader = null;
+
+                            if (currentCategory !== lastCategory) {
+                                categoryHeader = <CategoryHeader title={currentCategory} />;
+                                lastCategory = currentCategory;
+                            }
+
                             const depth = getChatDepth(chat);
                             const ancestors = getAncestorChatIds(chat);
                             const isAncestorActive = ancestors.has(activeChatId);
@@ -189,57 +279,86 @@ const Sidebar = ({ isOpen, toggle }) => {
                             const rootChat = isRoot ? chat : getRootChat(chat);
                             
                             return (
-                            <motion.div
-                                key={chat.id}
-                                layout
-                                initial={{ opacity: 0, y: -10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
-                            >
-                                <div
-                                    onClick={() => setActiveChatId(chat.id)}
-                                    onMouseEnter={() => setHoveredChatId(chat.id)}
-                                    onMouseLeave={() => setHoveredChatId(null)}
-                                        className={`relative flex items-center justify-between gap-3 p-2 rounded-lg cursor-pointer transition-colors 
-                                            ${activeChatId === chat.id ? 'bg-black/10 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/5'}
-                                            ${isAncestorActive ? 'border-l-2 border-blue-500/50' : ''}
-                                            ${hasBranches ? 'border-r-2 border-blue-500/30' : ''}`}
-                                        style={{ 
-                                            marginLeft: `${depth * 12}px`,
-                                            borderLeft: chat.sourceChatId ? '2px solid rgba(59, 130, 246, 0.2)' : 'none'
-                                        }}
+                                <React.Fragment key={chat.id}>
+                                    {categoryHeader}
+                                    <motion.div
+                                        layout
+                                        initial={{ opacity: 0, y: -10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
                                     >
-                                            <div className="flex items-center gap-3 overflow-hidden">
-                                            {chat.sourceChatId ? (
-                                                <GitBranch size={16} className="text-blue-500/70 dark:text-blue-400/70 flex-shrink-0" />
-                                            ) : (
-                                                <MessageSquare size={16} className="text-slate-500 dark:text-gray-400 flex-shrink-0" />
-                                            )}
-                                                <div className="flex flex-col overflow-hidden">
-                                                <span className="truncate text-sm font-medium text-slate-700 dark:text-gray-300">
-                                                    {chat.title}
-                                                </span>
-                                                <span className="truncate text-xs text-slate-500 dark:text-gray-500">
-                                                    {allModels.find(m => m.id === chat.modelId)?.name || 'Default Model'}
-                                                </span>
-                                            </div>
-                                        </div>
-                                    {hoveredChatId === chat.id && (
-                                        <motion.button
-                                            initial={{ opacity: 0, scale: 0.5 }}
-                                            animate={{ opacity: 1, scale: 1 }}
-                                            onClick={(e) => handleDeleteChat(chat.id, e)}
-                                            className="p-1 rounded hover:bg-red-500/20 text-red-500"
+                                        <div
+                                            onClick={() => setActiveChatId(chat.id)}
+                                            onMouseEnter={() => setHoveredChatId(chat.id)}
+                                            onMouseLeave={() => setHoveredChatId(null)}
+                                            className={`relative flex items-center justify-between gap-3 p-2 rounded-lg cursor-pointer transition-colors 
+                                                ${activeChatId === chat.id ? 'bg-black/10 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/5'}
+                                                ${isAncestorActive ? 'border-l-2 border-blue-500/50' : ''}
+                                                ${hasBranches ? 'border-r-2 border-blue-500/30' : ''}`}
+                                            style={{ 
+                                                marginLeft: `${depth * 12}px`,
+                                                borderLeft: chat.sourceChatId ? '2px solid rgba(59, 130, 246, 0.2)' : 'none'
+                                            }}
                                         >
-                                            <Trash2 size={14} />
-                                        </motion.button>
-                                    )}
-                                </div>
-                            </motion.div>
+                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                {chat.sourceChatId ? (
+                                                    <GitBranch size={16} className="text-blue-500/70 dark:text-blue-400/70 flex-shrink-0" />
+                                                ) : (
+                                                    <MessageSquare size={16} className="text-slate-500 dark:text-gray-400 flex-shrink-0" />
+                                                )}
+                                                <div className="flex flex-col overflow-hidden">
+                                                    <span className="truncate text-sm font-medium text-slate-700 dark:text-gray-300">
+                                                        {chat.title}
+                                                    </span>
+                                                    <span className="truncate text-xs text-slate-500 dark:text-gray-500">
+                                                        {allModels.find(m => m.id === chat.modelId)?.name || 'Default Model'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {hoveredChatId === chat.id && (
+                                                <motion.button
+                                                    initial={{ opacity: 0, scale: 0.5 }}
+                                                    animate={{ opacity: 1, scale: 1 }}
+                                                    onClick={(e) => handleDeleteChat(chat.id, e)}
+                                                    className="p-1 rounded hover:bg-red-500/20 text-red-500"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </motion.button>
+                                            )}
+                                        </div>
+                                    </motion.div>
+                                </React.Fragment>
                             );
                         })}
                     </AnimatePresence>
                 </div>
+
+                {/* Glass Sign in button at bottom */}
+                {isGuest && (
+                    <div className="p-4 border-t border-black/10 dark:border-white/10">
+                        {/* Sign in prompt text */}
+                        <div className="text-center mb-3">
+                            <span className="text-xs text-slate-500 dark:text-gray-400">
+                                <span className="text-red-400">*</span> Sign in to save your chats
+                            </span>
+                        </div>
+                        
+                        <div className="relative group cursor-pointer" onClick={handleSignIn}>
+                            <div className="text-center">
+                                <div className="relative inline-block">
+                                    <span className="text-sm font-medium text-slate-600/80 dark:text-gray-300/80 backdrop-blur-sm bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full border border-white/30 dark:border-white/10 transition-all duration-300 group-hover:text-slate-700 dark:group-hover:text-gray-200 group-hover:bg-white/30 dark:group-hover:bg-black/30">
+                                        Sign in
+                                    </span>
+                                    {/* Shine effect */}
+                                    <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-white/40 dark:via-white/20 to-transparent animate-pulse" />
+                                </div>
+                                <div className="mt-1 flex justify-center">
+                                    <ArrowRight size={12} className="text-slate-500/70 dark:text-gray-400/70 transition-all duration-300 group-hover:text-slate-600 dark:group-hover:text-gray-300 group-hover:translate-x-0.5" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </motion.div>
     );

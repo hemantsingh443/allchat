@@ -118,7 +118,14 @@ export const getChatMessages = (db) => async (req, res) => {
             where: eq(schema.messages.chatId, chatId),
             orderBy: [asc(schema.messages.createdAt)],
         });
-        res.json(messages);
+
+        // Parse search results from JSON string if present
+        const parsedMessages = messages.map(msg => ({
+            ...msg,
+            searchResults: msg.searchResults ? JSON.parse(msg.searchResults) : null
+        }));
+
+        res.json(parsedMessages);
     } catch (e) {
         console.error('Failed to fetch messages:', e);
         res.status(500).json({ error: 'Failed to fetch messages' });
@@ -138,9 +145,9 @@ export const deleteChat = (db) => async (req, res) => {
                 eq(schema.chats.userId, userId)
             )
         });
-
+        
         if (!chatToDelete) {
-            return res.status(404).json({ error: "Chat not found or you don't have permission to delete it." });
+             return res.status(404).json({ error: "Chat not found or you don't have permission to delete it." });
         }
 
         // Get all child chats that will be affected
@@ -319,10 +326,14 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
         let lastUserMessage = { ...messages[messages.length - 1] };
         const history = messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
         
+        let searchResults = null;
+
         if (useWebSearch) {
-            const activeTavily = userTavilyKey ? tavily(userTavilyKey) : tavily;
-            const searchContext = await activeTavily.search(lastUserMessage.content, { maxResults: 5 });
-            const contextText = searchContext.results.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
+            const activeTavily = userTavilyKey ? new tavily(userTavilyKey) : tavily;
+            const searchResponse = await activeTavily.search(lastUserMessage.content, { maxResults: 5 });
+            
+            searchResults = searchResponse.results;
+            const contextText = searchResponse.results.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
             lastUserMessage.content = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${lastUserMessage.content}"`;
         }
 
@@ -343,16 +354,30 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             const result = await model.generateContent({ contents: [{ role: "user", parts: promptParts }] });
             aiResponseContent = result.response.text();
         } else { 
-            if (!userApiKey) {
+            // Modified logic to select the correct API key
+            let apiKeyToUse;
+            const isFreeModel = modelId === 'mistralai/mistral-7b-instruct:free';
+
+            if (isFreeModel) {
+                apiKeyToUse = process.env.OPENROUTER_API_KEY;
+                if (!apiKeyToUse) {
+                    throw new Error("The free model is not configured on the server.");
+                }
+            } else {
+                apiKeyToUse = userApiKey;
+            }
+
+            if (!apiKeyToUse) {
                 throw new Error("An OpenRouter API key is required to use this model.");
             }
+
             let openRouterMessageContent = [{ type: 'text', text: lastUserMessage.content }];
             if (imageData && imageMimeType) {
                 openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageData}` } });
             }
             const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
-                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${userApiKey}` },
+                headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
                 body: JSON.stringify({ model: modelId, messages: [...history, { role: 'user', content: openRouterMessageContent }] }),
             });
             if (!openRouterResponse.ok) {
@@ -378,20 +403,27 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             chatId: currentChatId, 
             sender: 'user', 
             content: messages[messages.length - 1].content,
-            imageUrl: imageUrl, // Save the public URL of the image
-            usedWebSearch: useWebSearch // Save whether web search was used
+            imageUrl: imageUrl,
+            usedWebSearch: useWebSearch
         }).returning();
 
         const [aiMessage] = await db.insert(schema.messages).values({ 
             chatId: currentChatId, 
             sender: 'ai', 
             content: aiResponseContent,
-            modelId: modelId
+            modelId: modelId,
+            searchResults: searchResults ? JSON.stringify(searchResults) : null // Store search results as JSON string
         }).returning();
         
-        // The `userMessage` object now contains the `imageUrl` from the database,
-        // which will be sent back to the frontend.
-        res.json({ userMessage, aiMessage, newChat, chatId: currentChatId });
+        res.json({ 
+            userMessage, 
+            aiMessage: {
+                ...aiMessage,
+                searchResults: searchResults // Include search results in the response
+            }, 
+            newChat, 
+            chatId: currentChatId
+        });
     } catch (error) {
         console.error('Error in chat handler:', error);
         res.status(500).json({ error: `API Error: ${error.message}` });
@@ -400,7 +432,7 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
 
 export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);
-    const { messageId, newContent, chatId, modelId, userApiKey, useWebSearch } = req.body;
+    const { messageId, newContent, chatId, modelId, userApiKey, useWebSearch, userTavilyKey } = req.body;
     if (!messageId || !newContent || !chatId || !modelId) {
         return res.status(400).json({ error: 'Missing required fields for regeneration.' });
     }
@@ -409,8 +441,9 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
         // Step 1: Update the user's message in the database with the new content
         const [updatedUserMessage] = await db.update(schema.messages)
             .set({
-            content: newContent,
-            editCount: sql`${schema.messages.editCount} + 1`,
+                content: newContent,
+                editCount: sql`${schema.messages.editCount} + 1`,
+                usedWebSearch: useWebSearch || false
             })
             .where(and(
                 eq(schema.messages.id, messageId),
@@ -437,22 +470,62 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             orderBy: [asc(schema.messages.id)],
         });
 
-        // Step 4: Call the AI with the updated content and history
+        // Step 4: Perform web search if enabled
+        let searchResults = null;
+        if (useWebSearch) {
+            // Use user's key if provided, otherwise fall back to server key
+            const tavilyKeyToUse = userTavilyKey || process.env.TAVILY_API_KEY;
+            if (!tavilyKeyToUse) {
+                throw new Error("No Tavily API key available. Please provide a key in settings or contact support.");
+            }
+            searchResults = await tavily.search(newContent, tavilyKeyToUse);
+        }
+
+        // Step 5: Call the AI with the updated content, history, and search results
         let aiResponseContent;
         if (modelId.startsWith('google/')) {
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
             const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
-            const result = await chat.sendMessage(newContent);
+            
+            // Include search results in the prompt if available
+            const promptWithSearch = searchResults 
+                ? `Here are some relevant search results to help answer the query:\n\n${JSON.stringify(searchResults, null, 2)}\n\nQuery: ${newContent}`
+                : newContent;
+            
+            const result = await chat.sendMessage(promptWithSearch);
             aiResponseContent = result.response.text();
         } else {
-            if (!userApiKey) throw new Error("An OpenRouter API key is required.");
+            // Modified logic to select the correct API key
+            let apiKeyToUse;
+            const isFreeModel = modelId === 'mistralai/mistral-7b-instruct:free';
+
+            if (isFreeModel) {
+                apiKeyToUse = process.env.OPENROUTER_API_KEY;
+                if (!apiKeyToUse) {
+                    throw new Error("The free model is not configured on the server.");
+                }
+            } else {
+                apiKeyToUse = userApiKey;
+            }
+
+            if (!apiKeyToUse) {
+                throw new Error("An OpenRouter API key is required to use this model.");
+            }
+
+            // Include search results in the system message if available
+            const systemMessage = searchResults 
+                ? { role: 'system', content: `Here are some relevant search results to help answer the query:\n\n${JSON.stringify(searchResults, null, 2)}` }
+                : null;
+
             const apiMessages = [
+                ...(systemMessage ? [systemMessage] : []),
                 ...historyForAI.map(m => ({ role: m.sender, content: m.content })),
                 { role: 'user', content: newContent }
             ];
+
             const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
-                headers: { "Authorization": `Bearer ${userApiKey}`, "Content-Type": "application/json" },
+                headers: { "Authorization": `Bearer ${apiKeyToUse}`, "Content-Type": "application/json" },
                 body: JSON.stringify({ model: modelId, messages: apiMessages }),
             });
             if (!openRouterResponse.ok) throw new Error(await openRouterResponse.text());
@@ -460,19 +533,127 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             aiResponseContent = data.choices[0].message.content;
         }
 
-        // Step 5: Insert the new AI response into the database
+        // Step 6: Insert the new AI response into the database
         const [newAiMessage] = await db.insert(schema.messages).values({
             chatId: chatId, 
             sender: 'ai', 
             content: aiResponseContent,
-            modelId: modelId
+            modelId: modelId,
+            searchResults: searchResults ? JSON.stringify(searchResults) : null
         }).returning();
 
-        // Step 6: Send back the new AI message
-        res.status(200).json({ newAiMessage });
+        // Step 7: Send back the new AI message and search results
+        res.status(200).json({ 
+            newAiMessage,
+            searchResults: searchResults || null
+        });
 
     } catch (error) {
         console.error('Error regenerating response:', error);
         res.status(500).json({ error: `Failed to regenerate response: ${error.message}` });
+    }
+};
+
+export const handleGuestChat = (genAI) => async (req, res) => {
+    // Note: No getAuth(req) because this is a public endpoint.
+    const { messages } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        return res.status(400).json({ error: 'Invalid request: Messages are missing or invalid.' });
+    }
+    if (!process.env.OPENROUTER_API_KEY) {
+        return res.status(503).json({ error: 'Guest service is temporarily unavailable.' });
+    }
+
+    try {
+        const lastUserMessage = messages[messages.length - 1];
+        // For guests, we only consider the last message for simplicity, but you could include history.
+        const historyForAI = messages.slice(0, -1).map(m => ({ role: m.sender, content: m.content }));
+
+        const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` // Always use the server's key
+            },
+            body: JSON.stringify({
+                model: 'mistralai/mistral-7b-instruct:free', // Always use the free model for guests
+                messages: [...historyForAI, { role: 'user', content: lastUserMessage.content }]
+            }),
+        });
+
+        if (!openRouterResponse.ok) {
+            const errorData = await openRouterResponse.json();
+            console.error('Guest API Error from OpenRouter:', errorData);
+            throw new Error(errorData.error?.message || 'Failed to get a response from the AI model.');
+        }
+
+        const data = await openRouterResponse.json();
+        const aiResponseContent = data.choices[0].message.content;
+
+        // We just return the content, as we are not saving anything.
+        res.json({ content: aiResponseContent });
+
+    } catch (error) {
+        console.error('Error in guest chat handler:', error);
+        res.status(500).json({ error: `API Error: ${error.message}` });
+    }
+};
+
+// Add the new migration handler
+export const migrateGuestChats = (db) => async (req, res) => {
+    const { userId } = getAuth(req);
+    const { guestChats } = req.body;
+
+    if (!guestChats || !Array.isArray(guestChats) || guestChats.length === 0) {
+        return res.status(400).json({ error: 'No guest data provided for migration.' });
+    }
+
+    try {
+        // Process each chat sequentially for safety
+        for (const guestChat of guestChats) {
+            // Validate required fields
+            if (!guestChat.title || !guestChat.modelId || !guestChat.createdAt) {
+                console.warn('Skipping invalid guest chat:', guestChat);
+                continue;
+            }
+
+            // Step 1: Insert the parent chat record
+            const [newChat] = await db.insert(schema.chats).values({
+                userId: userId,
+                title: guestChat.title,
+                modelId: guestChat.modelId,
+                createdAt: new Date(guestChat.createdAt),
+                sourceChatId: null, // Reset branching on migration
+                branchedFromMessageId: null,
+            }).returning();
+            
+            // Step 2: Insert messages if they exist
+            if (guestChat.messages && guestChat.messages.length > 0) {
+                const messagesToInsert = guestChat.messages.map(msg => ({
+                    chatId: newChat.id,
+                    sender: msg.sender,
+                    content: msg.content,
+                    editCount: msg.editCount || 0,
+                    modelId: msg.modelId || guestChat.modelId, // Fallback to chat's modelId
+                    createdAt: new Date(msg.createdAt || guestChat.createdAt), // Fallback to chat's createdAt
+                }));
+                
+                await db.insert(schema.messages).values(messagesToInsert);
+            }
+        }
+
+        res.status(200).json({ 
+            success: true, 
+            message: 'Guest history migrated successfully.',
+            migratedCount: guestChats.length
+        });
+
+    } catch (error) {
+        console.error("Error migrating guest chats:", error);
+        res.status(500).json({ 
+            error: "Failed to migrate guest history.",
+            details: error.message 
+        });
     }
 };

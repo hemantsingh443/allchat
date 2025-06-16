@@ -78,7 +78,7 @@ const BranchModelSelector = ({ onSelect, onCancel, title = "Select model", isOpe
 
                                         {modelCategories.map((category) => {
                                             const filteredModels = category.models.filter(model => 
-                                                model.id.startsWith('google/') || userKeys.openrouter
+                                                model.id.startsWith('google/') || userKeys.openrouter || model.isFree
                                             );
                                             
                                             if (filteredModels.length === 0) return null;
@@ -89,7 +89,7 @@ const BranchModelSelector = ({ onSelect, onCancel, title = "Select model", isOpe
                                                         {category.logo} {category.name}
                                                     </h3>
                                                     {filteredModels.map(model => {
-                                                        const isDisabled = !model.id.startsWith('google/') && !userKeys.openrouter;
+                                                        const isDisabled = !model.id.startsWith('google/') && !model.isFree && !userKeys.openrouter;
                                                         return (
                                                             <button
                                                                 key={model.id}
