@@ -23,13 +23,13 @@ const NavigateToHome = () => {
 // Wrapped component that has access to notifications
 const AppContent = () => {
     const { userId, isLoaded, getToken } = useAuth();
-    const { signIn, isLoaded: isSignInLoaded } = useSignIn();
-    const [isGuestMode, setIsGuestMode] = useState(false);
+  const { signIn, isLoaded: isSignInLoaded } = useSignIn();
+  const [isGuestMode, setIsGuestMode] = useState(false);
     const [migrateHistory, setMigrateHistory] = useState(true);
     const { addNotification } = useNotification();
-
+  
     // Handle migration after successful sign-in
-    useEffect(() => {
+  useEffect(() => {
         const isMigrationPending = localStorage.getItem(MIGRATION_PENDING_KEY) === 'true';
 
         if (isLoaded && userId && isMigrationPending) {
@@ -48,7 +48,7 @@ const AppContent = () => {
             // Clean up after attempting migration
             localStorage.removeItem(MIGRATION_PENDING_KEY);
             localStorage.removeItem(GUEST_STORAGE_KEY);
-        }
+    }
     }, [isLoaded, userId, addNotification]);
 
     const migrateGuestData = async (guestChats) => {
@@ -80,7 +80,7 @@ const AppContent = () => {
     };
 
     const handleSignIn = async (shouldMigrate) => {
-        if (!isSignInLoaded) return;
+    if (!isSignInLoaded) return;
         
         if (shouldMigrate) {
             localStorage.setItem(MIGRATION_PENDING_KEY, 'true');
@@ -88,49 +88,49 @@ const AppContent = () => {
             localStorage.removeItem(MIGRATION_PENDING_KEY);
         }
 
-        try {
-            await signIn.authenticateWithRedirect({
-                strategy: 'oauth_google',
-                redirectUrl: '/sso-callback',
-                redirectUrlComplete: '/',
-            });
-        } catch (err) {
-            console.error("Google Sign-In failed", err);
+    try {
+      await signIn.authenticateWithRedirect({
+        strategy: 'oauth_google',
+        redirectUrl: '/sso-callback',
+        redirectUrlComplete: '/',
+      });
+    } catch (err) {
+      console.error("Google Sign-In failed", err);
             localStorage.removeItem(MIGRATION_PENDING_KEY);
             addNotification("Sign-in failed. Please try again.", "error");
-        }
-    };
-
-    const handleTryOut = () => {
-        setIsGuestMode(true);
-    };
-    
-    if (!isLoaded) {
-        return <div className="w-screen h-screen bg-gray-100 dark:bg-gray-900" />;
     }
+  };
 
-    return (
+  const handleTryOut = () => {
+    setIsGuestMode(true);
+  };
+  
+  if (!isLoaded) {
+    return <div className="w-screen h-screen bg-gray-100 dark:bg-gray-900" />;
+  }
+
+  return (
         <Routes>
-            <Route 
-                path="/" 
-                element={
-                    userId ? (
-                        <T3ChatUI isGuest={false} />
-                    ) : isGuestMode ? (
-                        <T3ChatUI isGuest={true} handleSignIn={handleSignIn} />
-                    ) : (
+          <Route 
+            path="/" 
+            element={
+              userId ? (
+                <T3ChatUI isGuest={false} />
+              ) : isGuestMode ? (
+                <T3ChatUI isGuest={true} handleSignIn={handleSignIn} />
+              ) : (
                         <LandingPage 
                             onSignIn={() => handleSignIn(true)} 
                             onTryOut={handleTryOut}
                         />
-                    )
-                }
-            />
-            <Route
-                path="/sso-callback"
-                element={<AuthenticateWithRedirectCallback />}
-            />
-            <Route path="*" element={<NavigateToHome />} />
+              )
+            }
+          />
+          <Route
+            path="/sso-callback"
+            element={<AuthenticateWithRedirectCallback />}
+          />
+          <Route path="*" element={<NavigateToHome />} />
         </Routes>
     );
 };
@@ -141,9 +141,9 @@ function App() {
         <ApiKeyProvider>
             <NotificationProvider>
                 <AppContent />
-            </NotificationProvider>
-        </ApiKeyProvider>
-    );
+      </NotificationProvider>
+    </ApiKeyProvider>
+  );
 }
 
 export default App;

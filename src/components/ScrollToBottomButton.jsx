@@ -2,22 +2,31 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown } from 'lucide-react';
 
-const ScrollToBottomButton = ({ containerRef }) => {
+const ScrollToBottomButton = ({ containerRef, activeChatId }) => {
     const [isVisible, setIsVisible] = useState(false);
 
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
 
+        setIsVisible(false);
+
         const handleScroll = () => {
             const { scrollTop, scrollHeight, clientHeight } = container;
-            // Show button if user has scrolled up more than a full screen height
-            setIsVisible(scrollHeight - scrollTop > clientHeight * 1.5);
+            const isScrollable = scrollHeight > clientHeight;
+            const isScrolledUp = (scrollHeight - scrollTop) > (clientHeight + 200);
+            setIsVisible(isScrollable && isScrolledUp);
         };
 
+        const timer = setTimeout(handleScroll, 150);
+
         container.addEventListener('scroll', handleScroll, { passive: true });
-        return () => container.removeEventListener('scroll', handleScroll);
-    }, [containerRef]);
+        
+        return () => {
+            clearTimeout(timer);
+            container.removeEventListener('scroll', handleScroll);
+        };
+    }, [containerRef, activeChatId]);
 
     const scrollToBottom = () => {
         containerRef.current?.scrollTo({

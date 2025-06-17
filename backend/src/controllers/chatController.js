@@ -7,33 +7,116 @@ import { tavily } from '@tavily/core';
 
 const SITE_URL = process.env.SITE_URL || 'http://localhost:3000';
 
+// ====================================================================
+// DYNAMIC TOKEN MANAGEMENT
+// ====================================================================
+const calculateMaxTokens = (options = {}) => {
+    const {
+        isGuest = false,
+        modelId = '',
+        hasUserKey = false,
+        messageLength = 0,
+        isStreaming = false,
+        useWebSearch = false,
+        maximizeTokens = false
+    } = options;
+
+    // Base token limits
+    let baseLimit = 2000;
+
+    // Adjust for guest vs logged-in users
+    if (isGuest) {
+        baseLimit = 1500; // More conservative for guests
+    } else if (hasUserKey) {
+        baseLimit = maximizeTokens ? 8000 : 4000; // Much higher if maximize is enabled
+    }
+
+    // Special handling for DeepSeek models with reasoning
+    if (modelId.includes('deepseek')) {
+        // DeepSeek models need more tokens because they generate reasoning + content
+        baseLimit = Math.max(baseLimit, maximizeTokens ? 20000 : 6000); // Much higher if maximize is enabled
+    }
+
+    // Adjust for model type
+    if (modelId.includes('gpt-4') || modelId.includes('claude-3-opus')) {
+        baseLimit = Math.min(baseLimit, maximizeTokens ? 6000 : 3000); // Higher if maximize is enabled
+    } else if (modelId.includes('gpt-3.5') || modelId.includes('claude-3-sonnet')) {
+        baseLimit = Math.min(baseLimit, maximizeTokens ? 7000 : 3500); // Higher if maximize is enabled
+    } else if (modelId.includes('free')) {
+        // Don't apply the 2500 limit to DeepSeek models
+        if (!modelId.includes('deepseek')) {
+            baseLimit = Math.min(baseLimit, maximizeTokens ? 5000 : 2500); // Higher if maximize is enabled
+        }
+    }
+
+    // Adjust for message length (shorter responses for longer inputs)
+    if (messageLength > 1000) {
+        baseLimit = Math.floor(baseLimit * 0.7);
+    } else if (messageLength > 500) {
+        baseLimit = Math.floor(baseLimit * 0.85);
+    }
+
+    // Adjust for web search (shorter responses since we have search results)
+    if (useWebSearch) {
+        baseLimit = Math.floor(baseLimit * 0.8);
+    }
+
+    // Adjust for streaming (slightly lower to prevent timeouts)
+    if (isStreaming) {
+        baseLimit = Math.floor(baseLimit * 0.9);
+    }
+
+    // Ensure minimum and maximum bounds
+    const minTokens = 500;
+    const maxTokens = modelId.includes('deepseek') 
+        ? (maximizeTokens ? 25000 : 12000) // Much higher max for DeepSeek when maximized
+        : (maximizeTokens ? 15000 : 8000); // Higher max for other models when maximized
+    
+    const finalTokens = Math.max(minTokens, Math.min(maxTokens, baseLimit));
+    console.log("[calculateMaxTokens] modelId:", modelId, "maximizeTokens:", maximizeTokens, "baseLimit:", baseLimit, "maxTokens:", maxTokens, "finalTokens:", finalTokens);
+    
+    return finalTokens;
+};
+
+// ====================================================================
+// HELPER FUNCTION FOR GOOGLE MESSAGES FORMATTING
+// ====================================================================
 const formatGoogleMessages = (messages) => messages.map(msg => ({
     role: msg.sender === 'ai' ? 'model' : 'user',
     parts: [{ text: msg.content }],
 }));
 
+// ====================================================================
+// HELPER FUNCTION FOR IMAGE UPLOAD
+// ====================================================================
 async function uploadImage(base64Image) {
     if (!process.env.IMGBB_API_KEY) {
         throw new Error("IMGBB_API_KEY is not set. Cannot upload image.");
     }
     console.log('Starting image upload to IMGBB...');
     const form = new FormData();
+    // The 'image' field is what IMGBB expects
     form.append('image', base64Image);
 
     try {
-    const response = await fetch(`https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`, {
-        method: 'POST',
-        body: form,
-    });
-    const result = await response.json();
+        const response = await fetch(`https://api.imgbb.com/1/upload?key=${process.env.IMGBB_API_KEY}`, {
+            method: 'POST',
+            body: form,
+        });
+
+        const result = await response.json();
+        
         console.log('IMGBB response:', result.success, result.data?.url);
-    if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to upload image.');
-    }
-    return result.data.url;
+
+        if (!result.success) {
+            // Provide a more detailed error from the API if available
+            throw new Error(result.error?.message || 'Failed to upload image to IMGBB.');
+        }
+        return result.data.url;
     } catch (error) {
         console.error('Error in uploadImage:', error);
-        throw error;
+        // Re-throw the original error to be caught by the calling function
+        throw new Error('Failed to upload image');
     }
 }
 
@@ -134,71 +217,86 @@ export const getChatMessages = (db) => async (req, res) => {
 
 export const deleteChat = (db) => async (req, res) => {
     const { userId } = getAuth(req);
-    const { chatId } = req.params;
-    if (!chatId) return res.status(400).json({ error: "Chat ID is required." });
+    const chatIdToDelete = parseInt(req.params.chatId);
+    if (!chatIdToDelete) return res.status(400).json({ error: "Chat ID is required." });
 
     try {
-        // First verify the chat exists and belongs to the user
+        // First, ensure the chat belongs to the user
         const chatToDelete = await db.query.chats.findFirst({
             where: and(
-                eq(schema.chats.id, parseInt(chatId)),
+                eq(schema.chats.id, chatIdToDelete),
                 eq(schema.chats.userId, userId)
             )
         });
-        
         if (!chatToDelete) {
-             return res.status(404).json({ error: "Chat not found or you don't have permission to delete it." });
+             return res.status(404).json({ error: "Chat not found or permission denied." });
         }
 
-        // Get all child chats that will be affected
+        // Find all direct children (branches) of the chat we are deleting
         const childChats = await db.query.chats.findMany({
-            where: and(
-                eq(schema.chats.sourceChatId, parseInt(chatId)),
-                eq(schema.chats.userId, userId)
-            )
+            where: eq(schema.chats.sourceChatId, chatIdToDelete),
         });
 
-        // Update child chats to become independent (remove sourceChatId)
-        // This must be done BEFORE deleting the parent chat due to foreign key constraints
+        // If there are branches, "promote" them to become root chats
         if (childChats.length > 0) {
             await db.update(schema.chats)
                 .set({
                     sourceChatId: null,
                     branchedFromMessageId: null,
-                    title: sql`CASE 
-                        WHEN ${schema.chats.title} LIKE '[Branch]%' 
-                        THEN SUBSTRING(${schema.chats.title} FROM 10) 
-                        ELSE ${schema.chats.title} 
-                    END`
                 })
                 .where(inArray(schema.chats.id, childChats.map(c => c.id)));
         }
 
-        // Now that child chats are independent, we can safely delete the parent chat's messages
+        // Now that children are independent, we can safely delete messages of the parent chat
         await db.delete(schema.messages)
-            .where(eq(schema.messages.chatId, parseInt(chatId)));
+            .where(eq(schema.messages.chatId, chatIdToDelete));
         
-        // Finally delete the chat itself
+        // Finally, delete the parent chat itself. This will now succeed.
         await db.delete(schema.chats)
-            .where(and(
-                eq(schema.chats.id, parseInt(chatId)),
-                eq(schema.chats.userId, userId)
-            ));
+            .where(eq(schema.chats.id, chatIdToDelete));
 
         res.json({ 
-            deletedChatId: parseInt(chatId),
-            promotedChats: childChats.map(c => c.id)
+            deletedChatId: chatIdToDelete,
+            // Let the frontend know which chats were promoted
+            promotedChats: childChats.map(c => c.id) 
         });
     } catch (error) {
         console.error("Error deleting chat:", error);
-        // Provide more specific error message for foreign key constraint violations
-        if (error.cause?.code === '23503') {
-            res.status(409).json({ 
-                error: "Cannot delete chat because it has active branches. Please try again." 
+        if (error.cause?.code === '23503') { // Foreign key violation
+            return res.status(409).json({ 
+                error: "Cannot delete this chat because it is referenced by another chat. Please try again." 
             });
-        } else {
-            res.status(500).json({ error: "Failed to delete chat." });
         }
+        res.status(500).json({ error: "Failed to delete chat." });
+    }
+};
+
+export const updateChatTitle = (db) => async (req, res) => {
+    const { userId } = getAuth(req);
+    const chatId = parseInt(req.params.chatId);
+    const { newTitle } = req.body;
+
+    if (!newTitle || newTitle.trim().length === 0) {
+        return res.status(400).json({ error: "New title cannot be empty." });
+    }
+
+    try {
+        const [updatedChat] = await db.update(schema.chats)
+            .set({ title: newTitle.substring(0, 255) }) // Enforce max length
+            .where(and(
+                eq(schema.chats.id, chatId),
+                eq(schema.chats.userId, userId)
+            ))
+            .returning({ id: schema.chats.id, title: schema.chats.title });
+
+        if (!updatedChat) {
+            return res.status(404).json({ error: "Chat not found or you don't have permission." });
+        }
+
+        res.status(200).json(updatedChat);
+    } catch (error) {
+        console.error("Error updating chat title:", error);
+        res.status(500).json({ error: "Failed to update chat title." });
     }
 };
 
@@ -209,9 +307,7 @@ export const deleteMessage = (db) => async (req, res) => {
     try {
         const message = await db.query.messages.findFirst({
             where: eq(schema.messages.id, messageIdToDelete),
-            with: { 
-                chat: true 
-            }
+            with: { chat: true }
         });
 
         if (!message) {
@@ -247,8 +343,29 @@ export const deleteMessage = (db) => async (req, res) => {
             .where(eq(schema.messages.chatId, message.chatId));
 
         let chatDeleted = false;
+        let promotedChats = []; // Keep track of promoted chats
+
         if (remaining.value === 0) {
-            await db.delete(schema.chats).where(eq(schema.chats.id, message.chatId));
+            const chatIdToDelete = message.chatId;
+
+            // Find all direct children (branches) of the chat we are about to delete
+            const childChats = await db.query.chats.findMany({
+                where: eq(schema.chats.sourceChatId, chatIdToDelete),
+            });
+
+            // If there are branches, "promote" them to become root chats
+            if (childChats.length > 0) {
+                await db.update(schema.chats)
+                    .set({
+                        sourceChatId: null,
+                        branchedFromMessageId: null,
+                    })
+                    .where(inArray(schema.chats.id, childChats.map(c => c.id)));
+                promotedChats = childChats.map(c => c.id);
+            }
+
+            // Now we can safely delete the empty chat.
+            await db.delete(schema.chats).where(eq(schema.chats.id, chatIdToDelete));
             chatDeleted = true;
         }
 
@@ -257,7 +374,8 @@ export const deleteMessage = (db) => async (req, res) => {
             message: "Message(s) deleted.", 
             deletedIds: idsToDelete,
             chatDeleted: chatDeleted,
-            deletedChatId: chatDeleted ? message.chatId : null
+            deletedChatId: chatDeleted ? message.chatId : null,
+            promotedChats: promotedChats // Send promoted chat IDs to the frontend
         });
 
     } catch (error) {
@@ -318,7 +436,7 @@ export const branchChat = (db) => async (req, res) => {
 
 export const handleChat = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);
-    const { messages, chatId, modelId, useWebSearch, imageData, imageMimeType, userApiKey, userTavilyKey } = req.body;
+    const { messages, chatId, modelId, useWebSearch, fileData, fileMimeType, fileName, userApiKey, userTavilyKey } = req.body;
 
     if (!messages) return res.status(400).json({ error: 'Invalid request: Messages are missing.' });
 
@@ -327,58 +445,112 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
         const history = messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
         
         let searchResults = null;
+        let imageUrl = null;
+        let fileInfo = { name: null, type: null };
+        let imageDataForAI = null;
+        let finalPrompt = lastUserMessage.content;
+
+        if (fileData && fileMimeType && fileName) {
+            fileInfo = { name: fileName, type: fileMimeType };
+            if (fileMimeType.startsWith('image/')) {
+                imageUrl = await uploadImage(fileData);
+                imageDataForAI = fileData;
+            } else if (fileMimeType === 'application/pdf') {
+                try {
+                    const pdfBuffer = Buffer.from(fileData, 'base64');
+                    const pdfParse = (await import('pdf-parse')).default;
+                    const data = await pdfParse(pdfBuffer);
+                    const pdfText = data.text.substring(0, 20000); // Limit PDF text to avoid large prompts
+                    finalPrompt = `Based on the content of the attached PDF "${fileName}":\n---\n${pdfText}\n---\n\nAnswer the user's query: "${finalPrompt}"`;
+                } catch (error) {
+                    console.error('PDF parsing error:', error);
+                    finalPrompt = `I see you've uploaded a PDF file named "${fileName}", but I encountered an issue while trying to extract its text content. Please copy and paste the relevant text from the PDF if you'd like me to help you with it.\n\nYour original question: "${finalPrompt}"`;
+                }
+            }
+        }
 
         if (useWebSearch) {
             const activeTavily = userTavilyKey ? new tavily(userTavilyKey) : tavily;
-            const searchResponse = await activeTavily.search(lastUserMessage.content, { maxResults: 5 });
+            
+            // Truncate the search query if it's too long
+            const maxQueryLength = 380; // Leave some buffer for safety
+            const searchQuery = finalPrompt.length > maxQueryLength 
+                ? finalPrompt.substring(0, maxQueryLength - 3) + '...'
+                : finalPrompt;
+            
+            const searchResponse = await activeTavily.search(searchQuery, { maxResults: 5 });
             
             searchResults = searchResponse.results;
-            const contextText = searchResponse.results.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
-            lastUserMessage.content = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${lastUserMessage.content}"`;
+            const contextText = searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
+            finalPrompt = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${finalPrompt}"`;
         }
 
         let aiResponseContent = '';
+        let reasoningData = null;
         const isGoogleModel = modelId.startsWith('google/');
-        let imageUrl = null;
-
-        if (imageData && imageMimeType) {
-            imageUrl = await uploadImage(imageData);
-        }
 
         if (isGoogleModel) {
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-            const promptParts = [{ text: lastUserMessage.content }];
-            if (imageData && imageMimeType) {
-                promptParts.push({ inlineData: { data: imageData, mimeType: imageMimeType } });
-            }
-            const result = await model.generateContent({ contents: [{ role: "user", parts: promptParts }] });
+            
+            // Format history for Google's API
+            const formattedHistory = history.map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.content }]
+            }));
+            
+            // Use startChat to include conversation history
+            const chat = model.startChat({ history: formattedHistory });
+            const result = await chat.sendMessage(finalPrompt);
+            
             aiResponseContent = result.response.text();
+
+            res.json({ 
+                content: aiResponseContent,
+                reasoning: null
+            });
+            return;
         } else { 
-            // Modified logic to select the correct API key
             let apiKeyToUse;
-            const isFreeModel = modelId === 'mistralai/mistral-7b-instruct:free';
+            const freeModels = [
+                'google/gemini-1.5-flash-latest',
+                'google/gemini-pro-1.5',
+                'mistralai/mistral-7b-instruct:free', 
+                'mistralai/devstral-small:free',
+                'deepseek/deepseek-r1:free',
+                'moonshotai/kimi-dev-72b:free'
+            ];
+            const isFreeModel = freeModels.includes(modelId);
 
             if (isFreeModel) {
                 apiKeyToUse = process.env.OPENROUTER_API_KEY;
-                if (!apiKeyToUse) {
-                    throw new Error("The free model is not configured on the server.");
-                }
+                if (!apiKeyToUse) throw new Error("The free model is not configured on the server.");
             } else {
                 apiKeyToUse = userApiKey;
             }
 
-            if (!apiKeyToUse) {
-                throw new Error("An OpenRouter API key is required to use this model.");
-            }
+            if (!apiKeyToUse) throw new Error("An OpenRouter API key is required to use this model.");
 
-            let openRouterMessageContent = [{ type: 'text', text: lastUserMessage.content }];
-            if (imageData && imageMimeType) {
-                openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${imageMimeType};base64,${imageData}` } });
+            let openRouterMessageContent = [{ type: 'text', text: finalPrompt }];
+            if (imageDataForAI && fileMimeType.startsWith('image/')) {
+                openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${fileMimeType};base64,${imageDataForAI}` } });
             }
             const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
-                body: JSON.stringify({ model: modelId, messages: [...history, { role: 'user', content: openRouterMessageContent }] }),
+                body: JSON.stringify({ 
+                    model: modelId, 
+                    messages: [...history, { role: 'user', content: openRouterMessageContent }],
+                    include_reasoning: modelId === 'deepseek/deepseek-r1:free',
+                    max_tokens: calculateMaxTokens({
+                        isGuest: !userId, // Guest if no userId
+                        modelId,
+                        hasUserKey: !!userApiKey,
+                        messageLength: finalPrompt.length,
+                        isStreaming: true,
+                        useWebSearch,
+                        maximizeTokens: req.body.maximizeTokens || false
+                    })
+                }),
             });
             if (!openRouterResponse.ok) {
                 const errorData = await openRouterResponse.json();
@@ -387,6 +559,7 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             }
             const data = await openRouterResponse.json();
             aiResponseContent = data.choices[0].message.content;
+            reasoningData = data.choices[0].message.reasoning || null;
         }
 
         let currentChatId = chatId;
@@ -398,12 +571,13 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             currentChatId = newChat.id;
         }
 
-
         const [userMessage] = await db.insert(schema.messages).values({ 
             chatId: currentChatId, 
             sender: 'user', 
             content: messages[messages.length - 1].content,
             imageUrl: imageUrl,
+            fileName: fileInfo.name,
+            fileType: fileInfo.type,
             usedWebSearch: useWebSearch
         }).returning();
 
@@ -412,14 +586,16 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             sender: 'ai', 
             content: aiResponseContent,
             modelId: modelId,
-            searchResults: searchResults ? JSON.stringify(searchResults) : null // Store search results as JSON string
+            searchResults: searchResults ? JSON.stringify(searchResults) : null,
+            reasoning: reasoningData
         }).returning();
         
         res.json({ 
             userMessage, 
             aiMessage: {
                 ...aiMessage,
-                searchResults: searchResults // Include search results in the response
+                searchResults: searchResults,
+                reasoning: reasoningData
             }, 
             newChat, 
             chatId: currentChatId
@@ -472,32 +648,57 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
 
         // Step 4: Perform web search if enabled
         let searchResults = null;
+        let finalPromptContent = newContent || ''; // Handle empty content
+        
+        // If content is empty or just a placeholder, provide a default prompt for image analysis
+        if (!finalPromptContent || finalPromptContent === '[Image uploaded]') {
+            finalPromptContent = 'Please analyze this image and provide a detailed description of what you see.';
+        }
+        
         if (useWebSearch) {
-            // Use user's key if provided, otherwise fall back to server key
             const tavilyKeyToUse = userTavilyKey || process.env.TAVILY_API_KEY;
-            if (!tavilyKeyToUse) {
-                throw new Error("No Tavily API key available. Please provide a key in settings or contact support.");
-            }
-            searchResults = await tavily.search(newContent, tavilyKeyToUse);
+            if (!tavilyKeyToUse) throw new Error("No Tavily API key available.");
+            
+            // Truncate the search query if it's too long
+            const maxQueryLength = 380; // Leave some buffer for safety
+            const searchQuery = finalPromptContent.length > maxQueryLength 
+                ? finalPromptContent.substring(0, maxQueryLength - 3) + '...'
+                : finalPromptContent;
+            
+            const searchResponse = await tavily.search(searchQuery, { maxResults: 5 });
+            searchResults = searchResponse.results;
+            const contextText = searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
+            finalPromptContent = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${finalPromptContent}"`;
         }
 
         // Step 5: Call the AI with the updated content, history, and search results
-        let aiResponseContent;
-        if (modelId.startsWith('google/')) {
+        let aiResponseContent = '';
+        let reasoningData = null;
+        const isGoogleModel = modelId.startsWith('google/');
+
+        if (isGoogleModel) {
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
             const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
             
             // Include search results in the prompt if available
             const promptWithSearch = searchResults 
-                ? `Here are some relevant search results to help answer the query:\n\n${JSON.stringify(searchResults, null, 2)}\n\nQuery: ${newContent}`
-                : newContent;
+                ? `Here are some relevant search results to help answer the query:\n\n${JSON.stringify(searchResults, null, 2)}\n\nQuery: ${finalPromptContent}`
+                : finalPromptContent;
             
             const result = await chat.sendMessage(promptWithSearch);
             aiResponseContent = result.response.text();
         } else {
             // Modified logic to select the correct API key
             let apiKeyToUse;
-            const isFreeModel = modelId === 'mistralai/mistral-7b-instruct:free';
+            const freeModels = [
+                'google/gemini-1.5-flash-latest',
+                'google/gemini-pro-1.5',
+                'mistralai/mistral-7b-instruct:free', 
+                'mistralai/devstral-small:free',
+                'deepseek/deepseek-r1:free',
+                'moonshotai/kimi-dev-72b:free'
+            ];
+            const isFreeModel = freeModels.includes(modelId);
 
             if (isFreeModel) {
                 apiKeyToUse = process.env.OPENROUTER_API_KEY;
@@ -519,18 +720,32 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
 
             const apiMessages = [
                 ...(systemMessage ? [systemMessage] : []),
-                ...historyForAI.map(m => ({ role: m.sender, content: m.content })),
-                { role: 'user', content: newContent }
+                ...historyForAI.map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content })),
+                { role: 'user', content: finalPromptContent }
             ];
 
             const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
                 method: "POST",
                 headers: { "Authorization": `Bearer ${apiKeyToUse}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ model: modelId, messages: apiMessages }),
+                body: JSON.stringify({ 
+                    model: modelId, 
+                    messages: apiMessages,
+                    include_reasoning: modelId === 'deepseek/deepseek-r1:free',
+                    max_tokens: calculateMaxTokens({
+                        isGuest: !userId, // Guest if no userId
+                        modelId,
+                        hasUserKey: !!userApiKey,
+                        messageLength: finalPromptContent.length,
+                        isStreaming: true,
+                        useWebSearch,
+                        maximizeTokens: req.body.maximizeTokens || false
+                    })
+                }),
             });
             if (!openRouterResponse.ok) throw new Error(await openRouterResponse.text());
             const data = await openRouterResponse.json();
             aiResponseContent = data.choices[0].message.content;
+            reasoningData = data.choices[0].message.reasoning || null;
         }
 
         // Step 6: Insert the new AI response into the database
@@ -539,12 +754,16 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             sender: 'ai', 
             content: aiResponseContent,
             modelId: modelId,
-            searchResults: searchResults ? JSON.stringify(searchResults) : null
+            searchResults: searchResults ? JSON.stringify(searchResults) : null,
+            reasoning: reasoningData
         }).returning();
 
         // Step 7: Send back the new AI message and search results
         res.status(200).json({ 
-            newAiMessage,
+            newAiMessage: {
+                ...newAiMessage,
+                reasoning: reasoningData
+            },
             searchResults: searchResults || null
         });
 
@@ -556,29 +775,85 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
 
 export const handleGuestChat = (genAI) => async (req, res) => {
     // Note: No getAuth(req) because this is a public endpoint.
-    const { messages } = req.body;
+    const { messages, modelId = 'google/gemini-1.5-flash-latest' } = req.body;
 
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'Invalid request: Messages are missing or invalid.' });
     }
-    if (!process.env.OPENROUTER_API_KEY) {
+    
+    // Only check for OpenRouter API key if using non-Google models
+    const isGoogleModel = (req.body.modelId || 'google/gemini-1.5-flash-latest').startsWith('google/');
+    if (!isGoogleModel && !process.env.OPENROUTER_API_KEY) {
         return res.status(503).json({ error: 'Guest service is temporarily unavailable.' });
+    }
+
+    // Validate that the requested model is a free model
+    const freeModels = [
+        'google/gemini-1.5-flash-latest',
+        'google/gemini-pro-1.5',
+        'mistralai/mistral-7b-instruct:free',
+        'mistralai/devstral-small:free'
+    ];
+    
+    if (!freeModels.includes(modelId)) {
+        return res.status(400).json({ error: 'Invalid model for guest usage. Only free models are allowed.' });
     }
 
     try {
         const lastUserMessage = messages[messages.length - 1];
         // For guests, we only consider the last message for simplicity, but you could include history.
-        const historyForAI = messages.slice(0, -1).map(m => ({ role: m.sender, content: m.content }));
+        const historyForAI = messages.slice(0, -1).map(m => ({ 
+            role: m.sender === 'ai' ? 'assistant' : 'user', 
+            content: m.content 
+        }));
 
+        // Check if it's a Google model
+        const isGoogleModel = modelId.startsWith('google/');
+        
+        if (isGoogleModel) {
+            // Use Google's genAI for Google models
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+            
+            // Format history for Google's API
+            const formattedHistory = historyForAI.map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.content }]
+            }));
+            
+            // Use startChat to include conversation history
+            const chat = model.startChat({ history: formattedHistory });
+            const result = await chat.sendMessage(lastUserMessage.content);
+            
+            const aiResponseContent = result.response.text();
+
+            res.json({ 
+                content: aiResponseContent,
+                reasoning: null
+            });
+            return;
+        }
+
+        // Use OpenRouter for non-Google models (Mistral, etc.)
         const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
                 "Content-Type": "application/json",
-                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}` // Always use the server's key
+                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`
             },
             body: JSON.stringify({
-                model: 'mistralai/mistral-7b-instruct:free', // Always use the free model for guests
-                messages: [...historyForAI, { role: 'user', content: lastUserMessage.content }]
+                model: modelId,
+                messages: [...historyForAI, { role: 'user', content: lastUserMessage.content }],
+                include_reasoning: false,
+                stream: true,
+                max_tokens: calculateMaxTokens({
+                    isGuest: true, // This is a guest function
+                    modelId,
+                    hasUserKey: false, // No user key for guests
+                    messageLength: messages[messages.length - 1].content.length,
+                    isStreaming: true,
+                    useWebSearch: false,
+                    maximizeTokens: false // Guests can't maximize tokens
+                })
             }),
         });
 
@@ -592,7 +867,10 @@ export const handleGuestChat = (genAI) => async (req, res) => {
         const aiResponseContent = data.choices[0].message.content;
 
         // We just return the content, as we are not saving anything.
-        res.json({ content: aiResponseContent });
+        res.json({ 
+            content: aiResponseContent,
+            reasoning: data.choices[0].message.reasoning || null
+        });
 
     } catch (error) {
         console.error('Error in guest chat handler:', error);
@@ -600,7 +878,155 @@ export const handleGuestChat = (genAI) => async (req, res) => {
     }
 };
 
-// Add the new migration handler
+export const handleGuestChatStreaming = (genAI) => async (req, res) => {
+    const { messages, modelId = 'google/gemini-1.5-flash-latest' } = req.body;
+
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        return res.status(400).json({ error: 'Invalid request: Messages are missing or invalid.' });
+    }
+    
+    // Only check for OpenRouter API key if using non-Google models
+    const isGoogleModel = (req.body.modelId || 'google/gemini-1.5-flash-latest').startsWith('google/');
+    if (!isGoogleModel && !process.env.OPENROUTER_API_KEY) {
+        return res.status(503).json({ error: 'Guest service is temporarily unavailable.' });
+    }
+
+    const freeModels = [
+        'google/gemini-1.5-flash-latest',
+        'google/gemini-pro-1.5',
+        'mistralai/mistral-7b-instruct:free',
+        'mistralai/devstral-small:free'
+    ];
+    
+    if (!freeModels.includes(modelId)) {
+        return res.status(400).json({ error: 'Invalid model for guest usage. Only free models are allowed.' });
+    }
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+    });
+
+    try {
+        const historyForAI = messages.slice(0, -1).map(m => ({
+            role: m.sender === 'ai' ? 'assistant' : 'user',
+            content: m.content
+        }));
+        const lastUserMessage = messages[messages.length - 1];
+
+        // Check if it's a Google model
+        const isGoogleModel = modelId.startsWith('google/');
+        
+        if (isGoogleModel) {
+            // Use Google's genAI for Google models
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+            
+            // Format history for Google's API
+            const formattedHistory = historyForAI.map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.content }]
+            }));
+            
+            // Use startChat to include conversation history
+            const chat = model.startChat({ history: formattedHistory });
+            const result = await chat.sendMessageStream(lastUserMessage.content);
+            
+            for await (const chunk of result.stream) {
+                const chunkText = chunk.text();
+                if (chunkText) {
+                    res.write(`data: ${JSON.stringify({ type: 'content_word', content: chunkText })}\n\n`);
+                }
+            }
+            
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+            res.end();
+            return;
+        }
+
+        // Use OpenRouter for non-Google models (Mistral, etc.)
+        const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`
+            },
+            body: JSON.stringify({
+                model: modelId,
+                messages: [...historyForAI, { role: 'user', content: lastUserMessage.content }],
+                include_reasoning: false,
+                stream: true,
+                max_tokens: calculateMaxTokens({
+                    isGuest: true, // This is a guest function
+                    modelId,
+                    hasUserKey: false, // No user key for guests
+                    messageLength: messages[messages.length - 1].content.length,
+                    isStreaming: true,
+                    useWebSearch: false,
+                    maximizeTokens: false // Guests can't maximize tokens
+                })
+            }),
+        });
+
+        if (!openRouterResponse.ok) {
+            const errorData = await openRouterResponse.json();
+            throw new Error(errorData.error?.message || 'Failed to get a response from the AI model.');
+        }
+
+        const stream = openRouterResponse.body;
+        let buffer = '';
+
+        stream.on('data', (chunk) => {
+            buffer += chunk.toString();
+            let boundary;
+            while ((boundary = buffer.indexOf('\n')) !== -1) {
+                const line = buffer.substring(0, boundary);
+                buffer = buffer.substring(boundary + 1);
+                if (line.startsWith('data: ')) {
+                    const data = line.slice(6);
+                    if (data.trim() === '[DONE]') {
+                        res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+                        res.end();
+                        return;
+                    }
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.choices && parsed.choices[0]) {
+                            const choice = parsed.choices[0];
+                            if (choice.delta?.content) {
+                                res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
+                            }
+                            if (choice.delta?.reasoning) {
+                                res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
+                            }
+                        }
+                    } catch (e) {
+                        console.error('Error parsing streaming data line:', line, e);
+                    }
+                }
+            }
+        });
+
+        stream.on('end', async () => {
+            // Guest chats are not saved, so just end the stream.
+            // The frontend will assemble the final message.
+            res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+            res.end();
+        });
+
+        stream.on('error', (error) => {
+            console.error('Stream error from OpenRouter:', error);
+            res.write(`data: ${JSON.stringify({ type: 'error', error: 'Stream error occurred.' })}\n\n`);
+            res.end();
+        });
+
+    } catch (error) {
+        console.error('Error in guest streaming handler:', error);
+        res.write(`data: ${JSON.stringify({ type: 'error', error: `API Error: ${error.message}` })}\n\n`);
+        res.end();
+    }
+};
+
 export const migrateGuestChats = (db) => async (req, res) => {
     const { userId } = getAuth(req);
     const { guestChats } = req.body;
@@ -655,5 +1081,534 @@ export const migrateGuestChats = (db) => async (req, res) => {
             error: "Failed to migrate guest history.",
             details: error.message 
         });
+    }
+};
+
+export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
+    const { userId } = getAuth(req);
+    const { messages, chatId, modelId, useWebSearch, fileData, fileMimeType, fileName, userApiKey, userTavilyKey, maximizeTokens } = req.body;
+
+    console.log("[handleStreamingChat] maximizeTokens received:", maximizeTokens);
+
+    if (!messages) return res.status(400).json({ error: 'Invalid request: Messages are missing.' });
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+    });
+
+    try {
+        let lastUserMessage = { ...messages[messages.length - 1] };
+        const history = messages.slice(0, -1).map(m => ({ role: m.role, content: m.content }));
+        
+        let searchResults = null;
+        let searchQueries = null;
+        let imageUrl = null;
+        let fileInfo = { name: null, type: null };
+        let imageDataForAI = null;
+        let finalPrompt = lastUserMessage.content;
+
+        // --- Step 1: Handle File Uploads (Image or PDF) ---
+        if (fileData && fileMimeType && fileName) {
+            fileInfo = { name: fileName, type: fileMimeType };
+            if (fileMimeType.startsWith('image/')) {
+                // We need the image data for the AI and a URL for the database
+                imageDataForAI = fileData;
+                imageUrl = await uploadImage(fileData);
+            } else if (fileMimeType === 'application/pdf') {
+                try {
+                    const pdfBuffer = Buffer.from(fileData, 'base64');
+                    const pdfParse = (await import('pdf-parse')).default;
+                    const data = await pdfParse(pdfBuffer);
+                    const pdfText = data.text.substring(0, 20000);
+                    finalPrompt = `Based on the content of the attached PDF "${fileName}":\n---\n${pdfText}\n---\n\nAnswer the user's query: "${lastUserMessage.content}"`;
+                } catch (error) {
+                    console.error('PDF parsing error:', error);
+                    finalPrompt = `I see you've uploaded a PDF file named "${fileName}", but I encountered an issue while trying to extract its text content. Please copy and paste the relevant text from the PDF if you'd like me to help you with it.\n\nYour original question: "${lastUserMessage.content}"`;
+                }
+            }
+        }
+
+        // --- Step 2: Perform Web Search if Enabled ---
+        if (useWebSearch) {
+            let searchQuery = lastUserMessage.content;
+
+            // ====================== THE NEW LOGIC IS HERE ======================
+            // If there's an image, get a description first to use as the search query.
+            if (imageDataForAI) {
+                const visionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+                const imageDescriptionPrompt = "Describe this image in a way that can be used as a web search query. Focus on key objects, text, and concepts. Be concise and use only essential keywords. Keep it under 100 characters.";
+                
+                const visionResult = await visionModel.generateContent([
+                    imageDescriptionPrompt,
+                    { inlineData: { data: imageDataForAI, mimeType: fileMimeType } }
+                ]);
+                
+                const description = visionResult.response.text().trim();
+                
+                // Smart query construction with length management
+                const maxQueryLength = 380; // Leave some buffer for safety
+                const userQueryLength = lastUserMessage.content.length;
+                
+                if (userQueryLength >= maxQueryLength) {
+                    // If user query is already too long, truncate it
+                    searchQuery = lastUserMessage.content.substring(0, maxQueryLength - 3) + '...';
+                } else {
+                    // Combine user query with image description, but respect the limit
+                    const availableSpace = maxQueryLength - userQueryLength - 1; // -1 for space
+                    const truncatedDescription = description.length > availableSpace 
+                        ? description.substring(0, availableSpace - 3) + '...'
+                        : description;
+                    
+                    searchQuery = `${lastUserMessage.content} ${truncatedDescription}`.trim();
+                }
+                
+                console.log('Performing vision-based web search with query:', searchQuery);
+                console.log('Query length:', searchQuery.length);
+            }
+            // ====================================================================
+
+            const activeTavily = userTavilyKey ? new tavily(userTavilyKey) : tavily;
+            const searchResponse = await activeTavily.search(searchQuery, { 
+                maxResults: 5,
+                searchDepth: "advanced"
+            });
+            
+            searchResults = searchResponse.results;
+            searchQueries = searchResponse.query_suggestions;
+            const contextText = searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
+            finalPrompt = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${lastUserMessage.content}"`;
+        }
+
+        // --- Step 3: Save the User's Message to the Database ---
+        let currentChatId = chatId;
+        let newChat = null;
+        if (!chatId) {
+            const title = messages[messages.length - 1].content.substring(0, 30) || "New Chat";
+            [newChat] = await db.insert(schema.chats).values({ userId, title, modelId }).returning();
+            currentChatId = newChat.id;
+        }
+
+        const [userMessage] = await db.insert(schema.messages).values({ 
+            chatId: currentChatId, 
+            sender: 'user', 
+            content: messages[messages.length - 1].content,
+            imageUrl: imageUrl,
+            fileName: fileInfo.name,
+            fileType: fileInfo.type,
+            usedWebSearch: useWebSearch
+        }).returning();
+
+        res.write(`data: ${JSON.stringify({ type: 'chat_info', chatId: currentChatId, newChat, userMessage })}\n\n`);
+
+        // --- Step 4: Stream the Final AI Response ---
+        const isGoogleModel = modelId.startsWith('google/');
+        let reasoningData = '';
+        let aiResponseContent = '';
+
+        if (isGoogleModel) {
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+            
+            // Format history for Google's API
+            const formattedHistory = history.map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.content }]
+            }));
+            
+            // Add current message - use finalPrompt which contains PDF text if present
+            const promptParts = [{ text: finalPrompt }];
+            if (imageDataForAI && fileMimeType.startsWith('image/')) {
+                promptParts.push({ inlineData: { data: imageDataForAI, mimeType: fileMimeType } });
+            }
+            
+            // Use startChat to include conversation history
+            const chat = model.startChat({ history: formattedHistory });
+            const result = await chat.sendMessageStream(promptParts);
+            
+            for await (const chunk of result.stream) {
+                const chunkText = chunk.text();
+                if (chunkText) {
+                    aiResponseContent += chunkText;
+                    res.write(`data: ${JSON.stringify({ type: 'content_word', content: chunkText })}\n\n`);
+                }
+            }
+
+        } else {
+            // OpenRouter streaming logic (this part was already correct but is included for completeness)
+            return new Promise(async (resolve, reject) => {
+                let apiKeyToUse;
+                const freeModels = [
+                    'google/gemini-1.5-flash-latest',
+                    'google/gemini-pro-1.5',
+                    'mistralai/mistral-7b-instruct:free', 
+                    'mistralai/devstral-small:free',
+                    'deepseek/deepseek-r1:free',
+                    'moonshotai/kimi-dev-72b:free'
+                ];
+                const isFreeModel = freeModels.includes(modelId);
+
+                if (isFreeModel) {
+                    apiKeyToUse = process.env.OPENROUTER_API_KEY;
+                    if (!apiKeyToUse) return reject(new Error("The free model is not configured on the server."));
+                } else {
+                    apiKeyToUse = userApiKey;
+                }
+                if (!apiKeyToUse) return reject(new Error("An OpenRouter API key is required to use this model."));
+
+                // Prepare messages for OpenRouter API, including image if present
+                const openRouterMessageContent = [{ type: 'text', text: finalPrompt }];
+                if (imageDataForAI && fileMimeType.startsWith('image/')) {
+                    openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${fileMimeType};base64,${imageDataForAI}` } });
+                }
+
+                const apiMessages = [
+                    ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
+                    { role: 'user', content: openRouterMessageContent }
+                ];
+
+                const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
+                    body: JSON.stringify({ 
+                        model: modelId, 
+                        messages: apiMessages,
+                        include_reasoning: modelId === 'deepseek/deepseek-r1:free',
+                        stream: true,
+                        max_tokens: calculateMaxTokens({
+                            isGuest: !userId, // Guest if no userId
+                            modelId,
+                            hasUserKey: !!userApiKey,
+                            messageLength: finalPrompt.length,
+                            isStreaming: true,
+                            useWebSearch,
+                            maximizeTokens: req.body.maximizeTokens || false
+                        })
+                    }),
+                });
+
+                if (!openRouterResponse.ok) {
+                    const errorData = await openRouterResponse.json();
+                    return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'An unknown error occurred'}`));
+                }
+
+                const stream = openRouterResponse.body;
+                let buffer = '';
+
+                stream.on('data', (chunk) => {
+                    buffer += chunk.toString();
+                    let boundary;
+                    while ((boundary = buffer.indexOf('\n')) !== -1) {
+                        const line = buffer.substring(0, boundary);
+                        buffer = buffer.substring(boundary + 1);
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data.trim() === '[DONE]') return;
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.choices && parsed.choices[0]) {
+                                    const choice = parsed.choices[0];
+                                    if (choice.delta?.content) {
+                                        aiResponseContent += choice.delta.content;
+                                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
+                                    }
+                                    if (choice.delta?.reasoning) {
+                                        reasoningData += choice.delta.reasoning;
+                                        res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
+                                    }
+                                }
+                            } catch (e) { console.error('Error parsing streaming data line:', line, e); }
+                        }
+                    }
+                });
+
+                stream.on('end', async () => {
+                    try {
+                        const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
+                        const [aiMessage] = await db.insert(schema.messages).values({ 
+                            chatId: currentChatId, 
+                            sender: 'ai', 
+                            content: aiResponseContent,
+                            modelId: modelId,
+                            searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
+                            reasoning: reasoningData || null
+                        }).returning();
+
+                        res.write(`data: ${JSON.stringify({ 
+                            type: 'complete', 
+                            aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: reasoningData || null }
+                        })}\n\n`);
+                        res.end();
+                        resolve();
+                    } catch (dbError) { reject(dbError); }
+                });
+
+                stream.on('error', (error) => reject(error));
+            });
+        }
+        
+        // --- Step 5: Save the Final AI Message to the Database ---
+        if (isGoogleModel) {
+            const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
+            const [aiMessage] = await db.insert(schema.messages).values({ 
+                chatId: currentChatId, 
+                sender: 'ai', 
+                content: aiResponseContent,
+                modelId: modelId,
+                searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
+                reasoning: null
+            }).returning();
+
+            res.write(`data: ${JSON.stringify({ 
+                type: 'complete', 
+                aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: null }
+            })}\n\n`);
+            res.end();
+        }
+
+    } catch (error) {
+        console.error('Error in streaming chat handler:', error);
+        res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
+        res.end();
+    }
+};
+
+export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, res) => {
+    const { userId } = getAuth(req);
+    const { messageId, newContent, chatId, modelId, userApiKey, useWebSearch, userTavilyKey } = req.body;
+    
+    // Check for required fields, but allow empty content if there's an image
+    if (!messageId || !chatId || !modelId) {
+        return res.status(400).json({ error: 'Missing required fields for regeneration.' });
+    }
+    
+    // For image-only inputs, newContent might be empty or a placeholder
+    // We'll handle this in the processing logic below
+
+    res.writeHead(200, {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+    });
+
+    try {
+        // Step 1: Update the user's message and get the full updated message, including imageUrl
+        const [updatedUserMessage] = await db.update(schema.messages)
+            .set({
+                content: newContent,
+                editCount: sql`${schema.messages.editCount} + 1`,
+                usedWebSearch: useWebSearch || false
+            })
+            .where(and(
+                eq(schema.messages.id, messageId),
+                eq(schema.messages.sender, 'user')
+            ))
+            .returning(); // This returns the entire updated row
+        
+        if (!updatedUserMessage) {
+            throw new Error("Message to edit not found or you don't have permission.");
+        }
+
+        // Step 2: Delete all messages that came AFTER the user's prompt
+        await db.delete(schema.messages).where(and(
+            eq(schema.messages.chatId, chatId),
+            gt(schema.messages.id, updatedUserMessage.id)
+        ));
+        
+        // Step 3: Fetch the history of messages *before* the edited message
+        const historyForAI = await db.query.messages.findMany({
+            where: and(
+                eq(schema.messages.chatId, chatId), 
+                lt(schema.messages.id, updatedUserMessage.id)
+            ),
+            orderBy: [asc(schema.messages.id)],
+        });
+
+        // Step 4: Perform web search if enabled
+        let searchResults = null;
+        let finalPromptContent = newContent || ''; // Handle empty content
+        
+        // If content is empty or just a placeholder, provide a default prompt for image analysis
+        if (!finalPromptContent || finalPromptContent === '[Image uploaded]') {
+            finalPromptContent = 'Please analyze this image and provide a detailed description of what you see.';
+        }
+        
+        if (useWebSearch) {
+            const tavilyKeyToUse = userTavilyKey || process.env.TAVILY_API_KEY;
+            if (!tavilyKeyToUse) throw new Error("No Tavily API key available.");
+            
+            // Truncate the search query if it's too long
+            const maxQueryLength = 380; // Leave some buffer for safety
+            const searchQuery = finalPromptContent.length > maxQueryLength 
+                ? finalPromptContent.substring(0, maxQueryLength - 3) + '...'
+                : finalPromptContent;
+            
+            const searchResponse = await tavily.search(searchQuery, { maxResults: 5 });
+            searchResults = searchResponse.results;
+            const contextText = searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
+            finalPromptContent = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${finalPromptContent}"`;
+        }
+
+        // Step 5: Handle the image, if it exists on the edited message
+        let imageDataForAI = null;
+        if (updatedUserMessage.imageUrl) {
+            try {
+                // Fetch the image from the URL and convert it to base64 for the AI
+                const imageResponse = await fetch(updatedUserMessage.imageUrl);
+                const imageBuffer = await imageResponse.arrayBuffer();
+                imageDataForAI = Buffer.from(imageBuffer).toString('base64');
+            } catch (e) {
+                console.error("Failed to fetch image for regeneration:", e);
+                // Continue without the image if fetching fails
+            }
+        }
+
+        // Step 6: Call the AI with streaming support
+        let aiResponseContent = '';
+        let reasoningData = '';
+        const isGoogleModel = modelId.startsWith('google/');
+
+        if (isGoogleModel) {
+            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+            const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
+            
+            // ========================= THE FIX IS HERE =========================
+            // Prepare the input for the Gemini API correctly.
+            // It expects a simple string for text-only, or an array for multi-part (text+image).
+            let streamInput;
+            if (imageDataForAI && updatedUserMessage.fileType) {
+                // If there IS an image, create the parts array
+                streamInput = [
+                    { text: finalPromptContent },
+                    { inlineData: { data: imageDataForAI, mimeType: updatedUserMessage.fileType } }
+                ];
+            } else {
+                // If there is NO image, just send the plain text string
+                streamInput = finalPromptContent;
+            }
+            
+            const result = await chat.sendMessageStream(streamInput); // Use the correctly prepared input
+            // ====================================================================
+
+            for await (const chunk of result.stream) {
+                const chunkText = chunk.text();
+                if (chunkText) {
+                    aiResponseContent += chunkText;
+                    res.write(`data: ${JSON.stringify({ type: 'content_word', content: chunkText })}\n\n`);
+                }
+            }
+
+        } else {
+            // OpenRouter streaming logic (this part was already correct but is included for completeness)
+            return new Promise(async (resolve, reject) => {
+                let apiKeyToUse;
+                const freeModels = [
+                    'google/gemini-1.5-flash-latest',
+                    'google/gemini-pro-1.5',
+                    'mistralai/mistral-7b-instruct:free', 
+                    'mistralai/devstral-small:free',
+                    'deepseek/deepseek-r1:free',
+                    'moonshotai/kimi-dev-72b:free'
+                ];
+                const isFreeModel = freeModels.includes(modelId);
+
+                if (isFreeModel) {
+                    apiKeyToUse = process.env.OPENROUTER_API_KEY;
+                    if (!apiKeyToUse) return reject(new Error("The free model is not configured on the server."));
+                } else {
+                    apiKeyToUse = userApiKey;
+                }
+                if (!apiKeyToUse) return reject(new Error("An OpenRouter API key is required to use this model."));
+
+                // Prepare messages for OpenRouter API, including image if present
+                const openRouterMessageContent = [{ type: 'text', text: finalPromptContent }];
+                if (imageDataForAI && updatedUserMessage.fileType) {
+                    openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${updatedUserMessage.fileType};base64,${imageDataForAI}` } });
+                }
+
+                const apiMessages = [
+                    ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
+                    { role: 'user', content: openRouterMessageContent }
+                ];
+
+                const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
+                    body: JSON.stringify({ 
+                        model: modelId, 
+                        messages: apiMessages,
+                        include_reasoning: modelId === 'deepseek/deepseek-r1:free',
+                        stream: true,
+                        max_tokens: calculateMaxTokens({
+                            isGuest: !userId, // Guest if no userId
+                            modelId,
+                            hasUserKey: !!userApiKey,
+                            messageLength: finalPrompt.length,
+                            isStreaming: true,
+                            useWebSearch,
+                            maximizeTokens: req.body.maximizeTokens || false
+                        })
+                    }),
+                });
+
+                if (!openRouterResponse.ok) {
+                    const errorData = await openRouterResponse.json();
+                    return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'An unknown error occurred'}`));
+                }
+
+                const stream = openRouterResponse.body;
+                let buffer = '';
+
+                stream.on('data', (chunk) => {
+                    buffer += chunk.toString();
+                    let boundary;
+                    while ((boundary = buffer.indexOf('\n')) !== -1) {
+                        const line = buffer.substring(0, boundary);
+                        buffer = buffer.substring(boundary + 1);
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data.trim() === '[DONE]') return;
+                            try {
+                                const parsed = JSON.parse(data);
+                                if (parsed.choices && parsed.choices[0]) {
+                                    const choice = parsed.choices[0];
+                                    if (choice.delta?.content) {
+                                        aiResponseContent += choice.delta.content;
+                                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
+                                    }
+                                    if (choice.delta?.reasoning) {
+                                        reasoningData += choice.delta.reasoning;
+                                        res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
+                                    }
+                                }
+                            } catch (e) { console.error('Error parsing streaming data line:', line, e); }
+                        }
+                    }
+                });
+
+                stream.on('end', async () => {
+                    try {
+                        const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: reasoningData || null }).returning();
+                        res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: reasoningData || null } })}\n\n`);
+                        res.end();
+                        resolve();
+                    } catch (dbError) { reject(dbError); }
+                });
+
+                stream.on('error', (error) => reject(error));
+            });
+        }
+        
+        // Finalize for Google model stream
+        if (isGoogleModel) {
+            const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: null }).returning();
+            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: null } })}\n\n`);
+            res.end();
+        }
+
+    } catch (error) {
+        console.error('Error in streaming regeneration:', error);
+        res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
+        res.end();
     }
 };

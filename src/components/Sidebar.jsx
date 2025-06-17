@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil } from 'lucide-react';
 import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
 import { allModels } from '../data/models';
@@ -37,6 +37,8 @@ const CategoryHeader = ({ title }) => (
 const Sidebar = ({ isOpen, toggle }) => {
     const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, isGuest, handleSignIn } = useAppContext();
     const [hoveredChatId, setHoveredChatId] = useState(null);
+    const [editingChatId, setEditingChatId] = useState(null);
+    const [editingTitle, setEditingTitle] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
 
     // Memoize the chat map for efficient lookups
@@ -209,6 +211,50 @@ const Sidebar = ({ isOpen, toggle }) => {
         }
     };
 
+    const handleEditClick = (e, chat) => {
+        e.stopPropagation(); // Prevent the chat from being selected
+        setEditingChatId(chat.id);
+        setEditingTitle(chat.title);
+    };
+
+    const handleTitleChange = (e) => {
+        setEditingTitle(e.target.value);
+    };
+
+    const handleSaveTitle = async (e, chatId) => {
+        e.stopPropagation();
+        if (!editingTitle.trim()) {
+            // If title is empty, cancel edit
+            setEditingChatId(null);
+            return;
+        }
+
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/chats/${chatId}/title`, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ newTitle: editingTitle })
+            });
+
+            if (res.ok) {
+                const updatedChat = await res.json();
+                setChats(prevChats =>
+                    prevChats.map(c => (c.id === updatedChat.id ? { ...c, title: updatedChat.title } : c))
+                );
+            } else {
+                console.error("Failed to update title");
+            }
+        } catch (error) {
+            console.error("Error updating title:", error);
+        } finally {
+            setEditingChatId(null);
+        }
+    };
+
     return (
         <motion.div
             initial={false}
@@ -306,24 +352,54 @@ const Sidebar = ({ isOpen, toggle }) => {
                                                 ) : (
                                                     <MessageSquare size={16} className="text-slate-500 dark:text-gray-400 flex-shrink-0" />
                                                 )}
-                                                <div className="flex flex-col overflow-hidden">
-                                                    <span className="truncate text-sm font-medium text-slate-700 dark:text-gray-300">
-                                                        {chat.title}
-                                                    </span>
-                                                    <span className="truncate text-xs text-slate-500 dark:text-gray-500">
-                                                        {allModels.find(m => m.id === chat.modelId)?.name || 'Default Model'}
-                                                    </span>
-                                                </div>
+
+                                                {editingChatId === chat.id ? (
+                                                    <input
+                                                        type="text"
+                                                        value={editingTitle}
+                                                        onChange={handleTitleChange}
+                                                        onBlur={(e) => handleSaveTitle(e, chat.id)}
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === 'Enter') handleSaveTitle(e, chat.id);
+                                                            if (e.key === 'Escape') setEditingChatId(null);
+                                                        }}
+                                                        className="w-full bg-white/20 dark:bg-black/20 backdrop-blur-sm text-sm font-medium p-1.5 rounded-md outline-none border border-white/30 dark:border-white/10 text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all duration-200"
+                                                        autoFocus
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    />
+                                                ) : (
+                                                    <div className="flex flex-col overflow-hidden">
+                                                        <span className="truncate text-sm font-medium text-slate-700 dark:text-gray-300">
+                                                            {chat.title}
+                                                        </span>
+                                                        <span className="truncate text-xs text-slate-500 dark:text-gray-500">
+                                                            {allModels.find(m => m.id === chat.modelId)?.name || 'Default Model'}
+                                                        </span>
+                                                    </div>
+                                                )}
+
                                             </div>
-                                            {hoveredChatId === chat.id && (
-                                                <motion.button
-                                                    initial={{ opacity: 0, scale: 0.5 }}
+                                            {hoveredChatId === chat.id && editingChatId !== chat.id && (
+                                                <motion.div 
+                                                    initial={{ opacity: 0, scale: 0.8 }}
                                                     animate={{ opacity: 1, scale: 1 }}
-                                                    onClick={(e) => handleDeleteChat(chat.id, e)}
-                                                    className="p-1 rounded hover:bg-red-500/20 text-red-500"
+                                                    className="flex items-center"
                                                 >
-                                                    <Trash2 size={14} />
-                                                </motion.button>
+                                                    <button
+                                                        onClick={(e) => handleEditClick(e, chat)}
+                                                        className="p-1 rounded hover:bg-blue-500/20 text-blue-500"
+                                                        title="Edit title"
+                                                    >
+                                                        <Pencil size={14} /> 
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleDeleteChat(chat.id, e)}
+                                                        className="p-1 rounded hover:bg-red-500/20 text-red-500"
+                                                        title="Delete chat"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </motion.div>
                                             )}
                                         </div>
                                     </motion.div>

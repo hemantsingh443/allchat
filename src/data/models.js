@@ -5,8 +5,8 @@ export const modelCategories = [
         name: "Google",
         logo: <Bot size={16} className="text-blue-500" />,
         models: [
-            { id: 'google/gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', capabilities: { vision: true, reasoning: true } },
-            { id: 'google/gemini-pro-1.5', name: 'Gemini 1.5 Pro', capabilities: { vision: true, reasoning: true } },
+            { id: 'google/gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', capabilities: { vision: true, reasoning: true }, isFree: true },
+            { id: 'google/gemini-pro-1.5', name: 'Gemini 1.5 Pro', capabilities: { vision: true, reasoning: true }, isFree: true },
         ]
     },
     {
@@ -17,6 +17,40 @@ export const modelCategories = [
                 id: 'mistralai/mistral-7b-instruct:free', 
                 name: 'Mistral 7B Instruct', 
                 capabilities: { reasoning: true },
+                isFree: true
+            },
+            { 
+                id: 'mistralai/devstral-small:free', 
+                name: 'Devstral Small', 
+                capabilities: { reasoning: true, code: true },
+                isFree: true
+            },
+        ]
+    },
+    {
+        name: "DeepSeek",
+        logo: <Bot size={16} className="text-indigo-500" />,
+        models: [
+            { 
+                id: 'deepseek/deepseek-r1:free', 
+                name: 'DeepSeek R1', 
+                capabilities: { reasoning: true, code: true },
+                isFree: true,
+                config: {
+                    reasoningEnabled: true,
+                    maxTokens: 12000
+                }
+            },
+        ]
+    },
+    {
+        name: "Kimi",
+        logo: <Bot size={16} className="text-pink-500" />,
+        models: [
+            { 
+                id: 'moonshotai/kimi-dev-72b:free', 
+                name: 'Kimi-Dev-72B', 
+                capabilities: { reasoning: true, code: true },
                 isFree: true
             },
         ]

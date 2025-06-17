@@ -32,14 +32,14 @@ const LandingPage = ({ onSignIn, onTryOut }) => {
                     Your intelligent conversation partner.
                 </p>
                 <div className="space-y-4 max-w-sm mx-auto">
-                    <button
+                                        <button 
                         onClick={onSignIn}
                         className="group w-full flex items-center justify-center gap-3 py-3 px-4 rounded-lg text-md font-medium text-slate-700/80 dark:text-gray-300/80 backdrop-blur-sm bg-white/10 dark:bg-black/10 border border-white/20 dark:border-white/10 transition-all duration-300 hover:bg-white/20 dark:hover:bg-black/20 hover:text-slate-800 dark:hover:text-gray-200 hover:border-white/30 dark:hover:border-white/20 hover:shadow-lg hover:-translate-y-0.5"
-                    >
+                                        >
                         <GoogleIcon />
                         <span>Sign in with Google</span>
                         <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-white/20 dark:via-white/10 to-transparent" />
-                    </button>
+                                        </button>
                     
                     <div className="relative pt-2">
                         <div className="absolute inset-0 flex items-center">
@@ -47,16 +47,16 @@ const LandingPage = ({ onSignIn, onTryOut }) => {
                         </div>
                         <div className="relative flex justify-center text-sm">
                             <span className="px-2 bg-white/0 backdrop-blur-sm text-slate-500 dark:text-gray-400">or</span>
-                        </div>
-                    </div>
-
-                    <button
+                                    </div>
+                                </div>
+                                
+                                            <button 
                         onClick={onTryOut}
                         className="group relative w-full py-3 px-4 rounded-lg text-md font-medium text-slate-700/80 dark:text-gray-300/80 backdrop-blur-sm bg-white/10 dark:bg-black/10 border border-white/20 dark:border-white/10 transition-all duration-300 hover:bg-white/20 dark:hover:bg-black/20 hover:text-slate-800 dark:hover:text-gray-200 hover:border-white/30 dark:hover:border-white/20 hover:shadow-lg hover:-translate-y-0.5 overflow-hidden"
                     >
                         <span className="relative z-10">Try out first</span>
                         <div className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-white/20 dark:via-white/10 to-transparent" />
-                    </button>
+                                                            </button>
                 </div>
             </GlassPanel>
         </div>

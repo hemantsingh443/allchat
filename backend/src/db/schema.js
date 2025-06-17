@@ -18,10 +18,13 @@ export const messages = pgTable('messages', {
   sender: text('sender', { enum: ['user', 'ai'] }).notNull(),
   content: text('content').notNull(),
   imageUrl: text('image_url'), 
+  fileName: text('file_name'),
+  fileType: text('file_type'),
   usedWebSearch: boolean('used_web_search').default(false).notNull(),
   editCount: integer('edit_count').notNull().default(0),
   modelId: text('model_id'),
   searchResults: text('search_results'), // Store search results as JSON string
+  reasoning: text('reasoning'), // Store thinking tokens/reasoning data
   createdAt: timestamp('created_at').notNull().defaultNow(),
 });
 

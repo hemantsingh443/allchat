@@ -13,9 +13,17 @@ const CapabilityIcons = ({ capabilities = {} }) => (
     </div>
 );
 
-const BranchModelSelector = ({ onSelect, onCancel, title = "Select model", isOpen, currentModelId }) => {
+const BranchModelSelector = ({ onSelect, onCancel, title = "Select model", isOpen, currentModelId, isGuest = false }) => {
     const { userKeys } = useApiKeys();
     const currentModel = allModels.find(m => m.id === currentModelId);
+
+    // For guests, only allow Google and Mistral models
+    const guestAllowedModels = [
+        'google/gemini-1.5-flash-latest',
+        'google/gemini-pro-1.5',
+        'mistralai/mistral-7b-instruct:free',
+        'mistralai/devstral-small:free'
+    ];
 
     return (
         <Transition appear show={isOpen} as={React.Fragment}>
@@ -60,6 +68,14 @@ const BranchModelSelector = ({ onSelect, onCancel, title = "Select model", isOpe
                                         </button>
                                     </div>
 
+                                    {isGuest && (
+                                        <div className="mb-3 px-2 py-2 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+                                            <p className="text-xs text-blue-700 dark:text-blue-300">
+                                                Guest users can only regenerate with Google and Mistral models. Sign in to access all models.
+                                            </p>
+                                        </div>
+                                    )}
+
                                     <div className="max-h-64 overflow-y-auto custom-scrollbar pr-1 space-y-1">
                                         {currentModel && (
                                             <button
@@ -77,9 +93,16 @@ const BranchModelSelector = ({ onSelect, onCancel, title = "Select model", isOpe
                                         <div className="h-px bg-slate-200 dark:bg-slate-700 my-2" />
 
                                         {modelCategories.map((category) => {
-                                            const filteredModels = category.models.filter(model => 
-                                                model.id.startsWith('google/') || userKeys.openrouter || model.isFree
-                                            );
+                                            // Filter models based on user type
+                                            const filteredModels = category.models.filter(model => {
+                                                if (isGuest) {
+                                                    // For guests, only show Google and Mistral models
+                                                    return guestAllowedModels.includes(model.id);
+                                                } else {
+                                                    // For logged-in users, show models they have access to
+                                                    return model.id.startsWith('google/') || userKeys.openrouter || model.isFree;
+                                                }
+                                            });
                                             
                                             if (filteredModels.length === 0) return null;
 
@@ -89,7 +112,7 @@ const BranchModelSelector = ({ onSelect, onCancel, title = "Select model", isOpe
                                                         {category.logo} {category.name}
                                                     </h3>
                                                     {filteredModels.map(model => {
-                                                        const isDisabled = !model.id.startsWith('google/') && !model.isFree && !userKeys.openrouter;
+                                                        const isDisabled = isGuest ? false : (!model.id.startsWith('google/') && !model.isFree && !userKeys.openrouter);
                                                         return (
                                                             <button
                                                                 key={model.id}

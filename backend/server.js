@@ -20,7 +20,7 @@ app.use(cors({
     origin: process.env.NODE_ENV === 'production' 
         ? 'https://allchat-topaz.vercel.app'
         : 'http://localhost:3000',
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
@@ -58,9 +58,9 @@ app.use('/api', clerkMiddleware({
 // Development server
 if (process.env.NODE_ENV !== 'production') {
     const port = process.env.PORT || 5001;
-    app.listen(port, () => {
-        console.log(`Server is running on http://localhost:${port}`);
-    });
+app.listen(port, () => {
+    console.log(`Server is running on http://localhost:${port}`);
+});
 }
 
 // Export for Vercel
