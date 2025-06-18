@@ -4,6 +4,7 @@ import * as schema from '../db/schema.js';
 import fetch from 'node-fetch';
 import FormData from 'form-data';
 import { tavily } from '@tavily/core';
+import pdf from 'pdf-parse'; 
 
 const SITE_URL = process.env.SITE_URL || 'http://localhost:3000';
 
@@ -548,8 +549,8 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             } else if (fileMimeType === 'application/pdf') {
                 try {
                     const pdfBuffer = Buffer.from(fileData, 'base64');
-                    const pdfParse = (await import('pdf-parse')).default;
-                    const data = await pdfParse(pdfBuffer);
+                    // 2. USE THE STATIC IMPORT HERE
+                    const data = await pdf(pdfBuffer);
                     const pdfText = data.text.substring(0, 20000); // Limit PDF text to avoid large prompts
                     finalPrompt = `Based on the content of the attached PDF "${fileName}":\n---\n${pdfText}\n---\n\nAnswer the user's query: "${finalPrompt}"`;
                 } catch (error) {
@@ -1169,8 +1170,8 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
             } else if (fileMimeType === 'application/pdf') {
                 try {
                     const pdfBuffer = Buffer.from(fileData, 'base64');
-                    const pdfParse = (await import('pdf-parse')).default;
-                    const data = await pdfParse(pdfBuffer);
+                    // 2. USE THE STATIC IMPORT HERE
+                    const data = await pdf(pdfBuffer);
                     const pdfText = data.text.substring(0, 20000);
                     finalPrompt = `Based on the content of the attached PDF "${fileName}":\n---\n${pdfText}\n---\n\nAnswer the user's query: "${lastUserMessage.content}"`;
                 } catch (error) {
