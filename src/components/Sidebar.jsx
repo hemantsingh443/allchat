@@ -1,12 +1,28 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil, Check, X, GripVertical } from 'lucide-react';
-import { UserButton, useAuth } from "@clerk/clerk-react";
+import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
+import { useNotification } from '../contexts/NotificationContext';
 import { allModels } from '../data/models';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 const GUEST_STORAGE_KEY = 'allchat-guest-history';
+
+// Helper function to validate authentication
+const validateAuthentication = async (getToken) => {
+    if (!getToken) {
+        throw new Error('Authentication not available');
+    }
+
+    const token = await getToken();
+    
+    if (!token || typeof token !== 'string') {
+        throw new Error('Invalid authentication token');
+    }
+
+    return token;
+};
 
 // Add helper function for chat time categorization
 const getChatTimeCategory = (chatDate) => {
@@ -157,8 +173,8 @@ const ChatItem = React.memo(({
 });
 
 const Sidebar = ({ isOpen, toggle }) => {
-    const { chats, setChats, activeChatId, setActiveChatId, getConfirmation, isGuest, handleSignIn } = useAppContext();
-    const { getToken } = useAuth();
+    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, isGuest, handleSignIn } = useAppContext();
+    const { addNotification } = useNotification();
     const [editingChatId, setEditingChatId] = useState(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
@@ -216,15 +232,27 @@ const Sidebar = ({ isOpen, toggle }) => {
     useEffect(() => {
         const fetchChats = async () => {
             try {
-                const token = await getToken();
+                const token = await validateAuthentication(getToken);
+
                 const res = await fetch(`${API_URL}/api/chats`, { 
                     headers: { 'Authorization': `Bearer ${token}` } 
                 });
-                if (!res.ok) throw new Error("Failed to fetch chats");
+                
+                if (!res.ok) {
+                    if (res.status === 401) {
+                        console.error("Authentication failed when fetching chats");
+                        // Don't throw here, just log the error
+                        return;
+                    } else {
+                        throw new Error(`Failed to fetch chats: ${res.status}`);
+                    }
+                }
+                
                 const data = await res.json();
                 setChats(data);
             } catch (error) { 
                 console.error("Failed to fetch chats:", error);
+                // Don't show user-facing error for chat fetching as it might be a temporary issue
             }
         };
         
@@ -286,27 +314,50 @@ const Sidebar = ({ isOpen, toggle }) => {
         }
 
         try {
-            const token = await getToken();
+            const token = await validateAuthentication(getToken);
+
             const res = await fetch(`${API_URL}/api/chats/${chatId}`, {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
 
             if (!res.ok) {
-                // Rollback on failure
-                setChats(previousChats);
-                if (activeChatId === null) setActiveChatId(chatId); // Restore active chat if it was the one deleted
-                const errorData = await res.json();
-                console.error("Failed to delete chat:", errorData.error);
+                const errorData = await res.json().catch(() => ({ error: 'Failed to delete chat' }));
+                
+                // Handle specific authentication errors
+                if (res.status === 401) {
+                    throw new Error('Authentication failed. Please sign in again.');
+                } else if (res.status === 403) {
+                    throw new Error('You don\'t have permission to delete this chat.');
+                } else if (res.status === 404) {
+                    throw new Error('Chat not found.');
+                } else {
+                    throw new Error(errorData.error || `Failed to delete chat (${res.status})`);
+                }
             }
-            // On success, no action is needed as the UI is already updated.
+
+            // Success - no action is needed as the UI is already updated
+            console.log('Chat deleted successfully');
+            addNotification('Chat deleted successfully!', 'success');
+            
         } catch (error) { 
             // Rollback on failure
             setChats(previousChats);
             if (activeChatId === null) setActiveChatId(chatId);
+            
             console.error("Failed to delete chat:", error);
+            
+            // Show user-friendly error message
+            if (error.message.includes('Authentication failed')) {
+                // Trigger sign-in flow for authentication issues
+                addNotification('Authentication failed. Please sign in again.', 'error');
+                handleSignIn();
+            } else {
+                // Show notification for other errors
+                addNotification(error.message, 'error');
+            }
         }
-    }, [chats, getConfirmation, isGuest, getToken, setChats, activeChatId, setActiveChatId]);
+    }, [chats, getConfirmation, isGuest, getToken, setChats, activeChatId, setActiveChatId, handleSignIn, addNotification]);
 
     const handleEditClick = useCallback((e, chat) => {
         e.stopPropagation();
@@ -343,7 +394,8 @@ const Sidebar = ({ isOpen, toggle }) => {
         if(isGuest) return;
 
         try {
-            const token = await getToken();
+            const token = await validateAuthentication(getToken);
+
             const res = await fetch(`${API_URL}/api/chats/${chatId}/title`, {
                 method: 'PATCH',
                 headers: {
@@ -354,18 +406,44 @@ const Sidebar = ({ isOpen, toggle }) => {
             });
 
             if (!res.ok) {
-                // Rollback on failure
-                setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: originalTitle } : c));
-                console.error("Failed to update title");
+                const errorData = await res.json().catch(() => ({ error: 'Failed to update title' }));
+                
+                // Handle specific authentication errors
+                if (res.status === 401) {
+                    throw new Error('Authentication failed. Please sign in again.');
+                } else if (res.status === 403) {
+                    throw new Error('You don\'t have permission to edit this chat.');
+                } else if (res.status === 404) {
+                    throw new Error('Chat not found.');
+                } else {
+                    throw new Error(errorData.error || `Failed to update title (${res.status})`);
+                }
             }
+
+            // Success - no need to rollback since the update was successful
+            const updatedChat = await res.json();
+            console.log('Title updated successfully:', updatedChat);
+            addNotification('Chat title updated successfully!', 'success');
+            
         } catch (error) {
             // Rollback on failure
             setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: originalTitle } : c));
+            
             console.error("Error updating title:", error);
+            
+            // Show user-friendly error message
+            if (error.message.includes('Authentication failed')) {
+                // Trigger sign-in flow for authentication issues
+                addNotification('Authentication failed. Please sign in again.', 'error');
+                handleSignIn();
+            } else {
+                // Show notification for other errors
+                addNotification(error.message, 'error');
+            }
         } finally {
             handleCancelEdit();
         }
-    }, [editingTitle, chats, isGuest, getToken, setChats, handleCancelEdit]);
+    }, [editingTitle, chats, isGuest, getToken, setChats, handleCancelEdit, handleSignIn, addNotification]);
 
     // Pre-process chats for efficient rendering
     const processedChats = useMemo(() => {

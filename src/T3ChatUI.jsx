@@ -15,6 +15,8 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
 
+    const { getToken } = useAuth();
+    const memoizedGetToken = useCallback(getToken, [getToken]);
     const { getConfirmation } = useNotification();
 
     // Mouse position effect for aurora animation
@@ -42,8 +44,9 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
         setChats,
         activeChatId,
         setActiveChatId,
+        getToken: memoizedGetToken,
         getConfirmation,
-    }), [isGuest, triggerSignInFlow, chats, activeChatId, getConfirmation]);
+    }), [isGuest, triggerSignInFlow, chats, activeChatId, memoizedGetToken, getConfirmation]);
 
     const toggleSidebar = () => {
         setIsSidebarOpen(!isSidebarOpen);

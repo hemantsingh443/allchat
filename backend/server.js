@@ -12,7 +12,6 @@ import createChatRoutes from './src/routes/chatRoutes.js';
 
 const app = express();
 
-// --- CORS Middleware: must be first for all routes, including preflight ---
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' 
         ? 'https://allchat-topaz.vercel.app'
