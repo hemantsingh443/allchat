@@ -12,10 +12,7 @@ import createChatRoutes from './src/routes/chatRoutes.js';
 
 const app = express();
 
-// Middleware
-app.use(express.json({ limit: '10mb' }));
-
-// Configure CORS with proper origin
+// --- CORS Middleware: must be first for all routes, including preflight ---
 app.use(cors({
     origin: process.env.NODE_ENV === 'production' 
         ? 'https://allchat-topaz.vercel.app'
@@ -24,6 +21,9 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization'],
     credentials: true
 }));
+
+// Middleware
+app.use(express.json({ limit: '10mb' }));
 
 // Service Initializations
 const sqlConnection = neon(process.env.DATABASE_URL);

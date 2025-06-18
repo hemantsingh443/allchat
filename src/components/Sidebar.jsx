@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil, Check, X, GripVertical } from 'lucide-react';
-import { UserButton } from "@clerk/clerk-react";
+import { UserButton, useAuth } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
 import { allModels } from '../data/models';
 
@@ -157,7 +157,8 @@ const ChatItem = React.memo(({
 });
 
 const Sidebar = ({ isOpen, toggle }) => {
-    const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, isGuest, handleSignIn } = useAppContext();
+    const { chats, setChats, activeChatId, setActiveChatId, getConfirmation, isGuest, handleSignIn } = useAppContext();
+    const { getToken } = useAuth();
     const [editingChatId, setEditingChatId] = useState(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
