@@ -5,11 +5,10 @@ import fetch from 'node-fetch';
 import FormData from 'form-data';
 import { tavily } from '@tavily/core';
 
-// --- START: THE CORRECT FIX FOR PDF-PARSE ---
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
-// --- END: THE CORRECT FIX FOR PDF-PARSE ---
+
 
 const SITE_URL = process.env.SITE_URL || 'http://localhost:3000';
 
