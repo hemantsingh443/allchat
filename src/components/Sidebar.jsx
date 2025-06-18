@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil, Check, X } from 'lucide-react';
 import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
 import { allModels } from '../data/models';
@@ -34,85 +34,111 @@ const CategoryHeader = ({ title }) => (
     </div>
 );
 
+const ChatItem = React.memo(({ 
+    chat,
+    depth,
+    isActive, 
+    onSelect, 
+    onDelete, 
+    onEdit, 
+    isEditing, 
+    editingTitle, 
+    onTitleChange, 
+    onSaveTitle, 
+    onCancelEdit 
+}) => {
+    const [hoveredChatId, setHoveredChatId] = useState(null);
+    
+    // Safety check for invalid chat object
+    if (!chat || !chat.id) {
+        return null;
+    }
+    
+    return (
+        <motion.div
+            layout="position"
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
+        >
+            <div
+                onClick={() => onSelect(chat.id)}
+                onMouseEnter={() => setHoveredChatId(chat.id)}
+                onMouseLeave={() => setHoveredChatId(null)}
+                className={`relative flex items-center justify-between gap-3 p-2 rounded-lg cursor-pointer transition-colors 
+                    ${isActive ? 'bg-black/10 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/5'}`
+                }
+                style={{ 
+                    marginLeft: `${depth * 12}px`,
+                    borderLeft: chat.sourceChatId ? '2px solid rgba(59, 130, 246, 0.2)' : 'none'
+                }}
+            >
+                <div className="flex items-center gap-3 overflow-hidden">
+                    {chat.sourceChatId ? (
+                        <GitBranch size={16} className="text-blue-500/70 dark:text-blue-400/70 flex-shrink-0" />
+                    ) : (
+                        <MessageSquare size={16} className="text-slate-500 dark:text-gray-400 flex-shrink-0" />
+                    )}
+
+                    {isEditing ? (
+                        <input
+                            type="text"
+                            value={editingTitle}
+                            onChange={onTitleChange}
+                            onBlur={(e) => onSaveTitle(e, chat.id)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') onSaveTitle(e, chat.id);
+                                if (e.key === 'Escape') onCancelEdit();
+                            }}
+                            className="w-full bg-white/20 dark:bg-black/20 backdrop-blur-sm text-sm font-medium p-1.5 rounded-md outline-none border border-white/30 dark:border-white/10 text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all duration-200"
+                            autoFocus
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <div className="flex flex-col overflow-hidden">
+                            <span className="truncate text-sm font-medium text-slate-700 dark:text-gray-300">
+                                {chat.title || 'Untitled Chat'}
+                            </span>
+                            <span className="truncate text-xs text-slate-500 dark:text-gray-500">
+                                {allModels.find(m => m.id === chat.modelId)?.name || 'Default Model'}
+                            </span>
+                        </div>
+                    )}
+                </div>
+
+                {hoveredChatId === chat.id && !isEditing && (
+                    <motion.div 
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        className="flex items-center"
+                    >
+                        <button
+                            onClick={(e) => onEdit(e, chat)}
+                            className="p-1 rounded hover:bg-blue-500/20 text-blue-500"
+                            title="Edit title"
+                        >
+                            <Pencil size={14} /> 
+                        </button>
+                        <button
+                            onClick={(e) => onDelete(chat.id, e)}
+                            className="p-1 rounded hover:bg-red-500/20 text-red-500"
+                            title="Delete chat"
+                        >
+                            <Trash2 size={14} />
+                        </button>
+                    </motion.div>
+                )}
+            </div>
+        </motion.div>
+    );
+});
+
 const Sidebar = ({ isOpen, toggle }) => {
     const { chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, isGuest, handleSignIn } = useAppContext();
-    const [hoveredChatId, setHoveredChatId] = useState(null);
     const [editingChatId, setEditingChatId] = useState(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
-
-    // Memoize the chat map for efficient lookups
-    const chatMap = useMemo(() => 
-        new Map(chats.map(chat => [chat.id, chat])),
-        [chats]
-    );
-
-    // Helper function to get chat depth (how many times it's been branched)
-    const getChatDepth = useCallback((chat) => {
-        let depth = 0;
-        let currentChat = chat;
-        while (currentChat.sourceChatId) {
-            depth++;
-            currentChat = chatMap.get(currentChat.sourceChatId);
-            if (!currentChat) break;
-        }
-        return depth;
-    }, [chatMap]);
-
-    // Helper function to get all ancestor chat IDs
-    const getAncestorChatIds = useCallback((chat) => {
-        const ancestors = new Set();
-        let currentChat = chat;
-        while (currentChat.sourceChatId) {
-            ancestors.add(currentChat.sourceChatId);
-            currentChat = chatMap.get(currentChat.sourceChatId);
-            if (!currentChat) break;
-        }
-        return ancestors;
-    }, [chatMap]);
-
-    // Helper function to get all descendant chat IDs
-    const getDescendantChatIds = useCallback((chatId) => {
-        const descendants = new Set();
-        const findDescendants = (parentId) => {
-            chats.forEach(chat => {
-                if (chat.sourceChatId === parentId) {
-                    descendants.add(chat.id);
-                    findDescendants(chat.id);
-                }
-            });
-        };
-        findDescendants(chatId);
-        return descendants;
-    }, [chats]);
-
-    // Helper function to check if a chat is a root chat
-    const isRootChat = useCallback((chat) => !chat.sourceChatId, []);
-
-    // Helper function to get the root chat of a branch
-    const getRootChat = useCallback((chat) => {
-        let currentChat = chat;
-        while (currentChat.sourceChatId) {
-            const parentChat = chatMap.get(currentChat.sourceChatId);
-            if (!parentChat) break;
-            currentChat = parentChat;
-        }
-        return currentChat;
-    }, [chatMap]);
-
-    // Add filtered chats memo
-    const filteredChats = useMemo(() => {
-        if (!chats) return [];
-        if (!searchTerm.trim()) return chats;
-
-        const lowercasedTerm = searchTerm.toLowerCase();
-        return chats.filter(chat => 
-            chat.title.toLowerCase().includes(lowercasedTerm)
-        );
-    }, [chats, searchTerm]);
-
-    let lastCategory = null;
-
+    
     useEffect(() => {
         const fetchChats = async () => {
             try {
@@ -154,7 +180,7 @@ const Sidebar = ({ isOpen, toggle }) => {
 
     const handleNewChat = () => { setActiveChatId(null); };
 
-    const handleDeleteChat = async (chatId, e) => {
+    const handleDeleteChat = useCallback(async (chatId, e) => {
         e.stopPropagation();
 
         const confirmed = await getConfirmation({
@@ -164,12 +190,24 @@ const Sidebar = ({ isOpen, toggle }) => {
         });
         if (!confirmed) return;
 
+        const chatToDelete = chats.find(c => c && c.id === chatId);
+        if (!chatToDelete) return;
+        
+        const childrenToPromote = chats.filter(c => c && c.sourceChatId === chatId);
+
+        // --- OPTIMISTIC UI UPDATE ---
+        const previousChats = chats; // Save for potential rollback
+        if (activeChatId === chatId) setActiveChatId(null);
+
+        setChats(prev => prev
+            .filter(c => c && c.id !== chatId)
+            .map(c => childrenToPromote.some(child => child && child.id === c.id) 
+                ? { ...c, sourceChatId: null, branchedFromMessageId: null } 
+                : c
+            )
+        );
+
         if (isGuest) {
-            const newChats = chats.filter(c => c.id !== chatId);
-            setChats(newChats);
-            if (activeChatId === chatId) {
-                setActiveChatId(null);
-            }
             return;
         }
 
@@ -179,55 +217,56 @@ const Sidebar = ({ isOpen, toggle }) => {
                 method: 'DELETE',
                 headers: { 'Authorization': `Bearer ${token}` }
             });
-            
-            if (res.ok) {
-                const data = await res.json();
-                setChats(prev => {
-                    const updatedChats = prev.map(chat => {
-                        if (data.promotedChats?.includes(chat.id)) {
-                            return {
-                                ...chat,
-                                sourceChatId: null,
-                                branchedFromMessageId: null,
-                                title: chat.title.startsWith('[Branch]') 
-                                    ? chat.title.substring(10) 
-                                    : chat.title
-                            };
-                        }
-                        return chat;
-                    });
-                    return updatedChats.filter(c => c.id !== data.deletedChatId);
-                });
 
-                if (activeChatId === data.deletedChatId) {
-                    setActiveChatId(null);
-                }
-            } else {
+            if (!res.ok) {
+                // Rollback on failure
+                setChats(previousChats);
+                if (activeChatId === null) setActiveChatId(chatId); // Restore active chat if it was the one deleted
                 const errorData = await res.json();
                 console.error("Failed to delete chat:", errorData.error);
             }
+            // On success, no action is needed as the UI is already updated.
         } catch (error) { 
+            // Rollback on failure
+            setChats(previousChats);
+            if (activeChatId === null) setActiveChatId(chatId);
             console.error("Failed to delete chat:", error);
         }
-    };
+    }, [chats, getConfirmation, isGuest, getToken, setChats, activeChatId, setActiveChatId]);
 
-    const handleEditClick = (e, chat) => {
-        e.stopPropagation(); // Prevent the chat from being selected
+    const handleEditClick = useCallback((e, chat) => {
+        e.stopPropagation();
         setEditingChatId(chat.id);
         setEditingTitle(chat.title);
-    };
+    }, []);
 
-    const handleTitleChange = (e) => {
+    const handleTitleChange = useCallback((e) => {
         setEditingTitle(e.target.value);
-    };
+    }, []);
+    
+    const handleCancelEdit = useCallback(() => {
+        setEditingChatId(null);
+        setEditingTitle('');
+    }, []);
 
-    const handleSaveTitle = async (e, chatId) => {
+    const handleSaveTitle = useCallback(async (e, chatId) => {
         e.stopPropagation();
         if (!editingTitle.trim()) {
-            // If title is empty, cancel edit
-            setEditingChatId(null);
+            handleCancelEdit();
             return;
         }
+
+        const originalTitle = chats.find(c => c.id === chatId)?.title;
+        if (editingTitle.trim() === originalTitle) {
+            handleCancelEdit();
+            return;
+        }
+
+        // Optimistic update
+        setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: editingTitle.trim() } : c));
+        setEditingChatId(null);
+
+        if(isGuest) return;
 
         try {
             const token = await getToken();
@@ -240,20 +279,79 @@ const Sidebar = ({ isOpen, toggle }) => {
                 body: JSON.stringify({ newTitle: editingTitle })
             });
 
-            if (res.ok) {
-                const updatedChat = await res.json();
-                setChats(prevChats =>
-                    prevChats.map(c => (c.id === updatedChat.id ? { ...c, title: updatedChat.title } : c))
-                );
-            } else {
+            if (!res.ok) {
+                // Rollback on failure
+                setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: originalTitle } : c));
                 console.error("Failed to update title");
             }
         } catch (error) {
+            // Rollback on failure
+            setChats(prev => prev.map(c => c.id === chatId ? { ...c, title: originalTitle } : c));
             console.error("Error updating title:", error);
         } finally {
-            setEditingChatId(null);
+            handleCancelEdit();
         }
-    };
+    }, [editingTitle, chats, isGuest, getToken, setChats, handleCancelEdit]);
+
+    // Pre-process chats for efficient rendering
+    const processedChats = useMemo(() => {
+        try {
+            if (!chats || !Array.isArray(chats) || chats.length === 0) {
+                return [];
+            }
+
+            const validChats = chats.filter(chat => chat && typeof chat === 'object' && chat.id);
+            
+            if (validChats.length === 0) return [];
+
+            const chatMap = new Map();
+            validChats.forEach(chat => chatMap.set(chat.id, { ...chat, children: [] }));
+
+            const roots = [];
+            
+            for (const [chatId, chat] of chatMap) {
+                if (chat.sourceChatId && chatMap.has(chat.sourceChatId)) {
+                    const parent = chatMap.get(chat.sourceChatId);
+                    if (parent && parent.children) {
+                        parent.children.push(chat);
+                    }
+                } else {
+                    roots.push(chat);
+                }
+            }
+
+            const flatList = [];
+            const traverse = (chat, depth) => {
+                if (!chat || !chat.id) return;
+                flatList.push({ ...chat, depth });
+                if (chat.children && Array.isArray(chat.children)) {
+                    chat.children
+                        .sort((a, b) => (a.branchedFromMessageId || 0) - (b.branchedFromMessageId || 0))
+                        .forEach(child => traverse(child, depth + 1));
+                }
+            };
+
+            roots
+                .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+                .forEach(root => traverse(root, 0));
+
+            return flatList;
+        } catch (error) {
+            console.error('Error processing chats:', error);
+            return (chats || []).filter(chat => chat && chat.id).map(chat => ({ ...chat, depth: 0 }));
+        }
+    }, [chats]);
+
+    // Filter the pre-processed chats
+    const filteredChats = useMemo(() => {
+        if (!searchTerm.trim()) {
+            return processedChats.filter(chat => chat && chat.id);
+        }
+        const lowercasedTerm = searchTerm.toLowerCase();
+        return processedChats.filter(chat => 
+            chat && chat.id && chat.title && chat.title.toLowerCase().includes(lowercasedTerm)
+        );
+    }, [processedChats, searchTerm]);
 
     return (
         <motion.div
@@ -288,7 +386,6 @@ const Sidebar = ({ isOpen, toggle }) => {
                     </div>
                 </div>
 
-                {/* Add search bar */}
                 <div className="px-4 pb-2">
                     <div className="relative">
                         <input
@@ -306,113 +403,50 @@ const Sidebar = ({ isOpen, toggle }) => {
 
                 <div className="flex-1 overflow-y-auto space-y-1 px-4 pb-4 custom-scrollbar">
                     <AnimatePresence>
-                        {filteredChats.map(chat => {
-                            // Add category logic
-                            const currentCategory = getChatTimeCategory(new Date(chat.createdAt));
-                            let categoryHeader = null;
+                        {(() => {
+                            let lastCategory = null;
+                            return filteredChats.map(chat => {
+                                let categorizationDate = new Date(chat.createdAt);
+                                if (chat.sourceChatId) {
+                                    const parentChat = chats.find(c => c && c.id === chat.sourceChatId);
+                                    if (parentChat) {
+                                        categorizationDate = new Date(parentChat.createdAt);
+                                    }
+                                }
+                                
+                                const currentCategory = getChatTimeCategory(categorizationDate);
+                                let categoryHeader = null;
 
-                            if (currentCategory !== lastCategory) {
-                                categoryHeader = <CategoryHeader title={currentCategory} />;
-                                lastCategory = currentCategory;
-                            }
+                                if (currentCategory !== lastCategory) {
+                                    categoryHeader = <CategoryHeader title={currentCategory} />;
+                                    lastCategory = currentCategory;
+                                }
 
-                            const depth = getChatDepth(chat);
-                            const ancestors = getAncestorChatIds(chat);
-                            const isAncestorActive = ancestors.has(activeChatId);
-                            const descendants = getDescendantChatIds(chat.id);
-                            const hasBranches = descendants.size > 0;
-                            const isRoot = isRootChat(chat);
-                            const rootChat = isRoot ? chat : getRootChat(chat);
-                            
-                            return (
-                                <React.Fragment key={chat.id}>
-                                    {categoryHeader}
-                                    <motion.div
-                                        layout
-                                        initial={{ opacity: 0, y: -10 }}
-                                        animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
-                                    >
-                                        <div
-                                            onClick={() => setActiveChatId(chat.id)}
-                                            onMouseEnter={() => setHoveredChatId(chat.id)}
-                                            onMouseLeave={() => setHoveredChatId(null)}
-                                            className={`relative flex items-center justify-between gap-3 p-2 rounded-lg cursor-pointer transition-colors 
-                                                ${activeChatId === chat.id ? 'bg-black/10 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/5'}
-                                                ${isAncestorActive ? 'border-l-2 border-blue-500/50' : ''}
-                                                ${hasBranches ? 'border-r-2 border-blue-500/30' : ''}`}
-                                            style={{ 
-                                                marginLeft: `${depth * 12}px`,
-                                                borderLeft: chat.sourceChatId ? '2px solid rgba(59, 130, 246, 0.2)' : 'none'
-                                            }}
-                                        >
-                                            <div className="flex items-center gap-3 overflow-hidden">
-                                                {chat.sourceChatId ? (
-                                                    <GitBranch size={16} className="text-blue-500/70 dark:text-blue-400/70 flex-shrink-0" />
-                                                ) : (
-                                                    <MessageSquare size={16} className="text-slate-500 dark:text-gray-400 flex-shrink-0" />
-                                                )}
-
-                                                {editingChatId === chat.id ? (
-                                                    <input
-                                                        type="text"
-                                                        value={editingTitle}
-                                                        onChange={handleTitleChange}
-                                                        onBlur={(e) => handleSaveTitle(e, chat.id)}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter') handleSaveTitle(e, chat.id);
-                                                            if (e.key === 'Escape') setEditingChatId(null);
-                                                        }}
-                                                        className="w-full bg-white/20 dark:bg-black/20 backdrop-blur-sm text-sm font-medium p-1.5 rounded-md outline-none border border-white/30 dark:border-white/10 text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all duration-200"
-                                                        autoFocus
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                ) : (
-                                                    <div className="flex flex-col overflow-hidden">
-                                                        <span className="truncate text-sm font-medium text-slate-700 dark:text-gray-300">
-                                                            {chat.title}
-                                                        </span>
-                                                        <span className="truncate text-xs text-slate-500 dark:text-gray-500">
-                                                            {allModels.find(m => m.id === chat.modelId)?.name || 'Default Model'}
-                                                        </span>
-                                                    </div>
-                                                )}
-
-                                            </div>
-                                            {hoveredChatId === chat.id && editingChatId !== chat.id && (
-                                                <motion.div 
-                                                    initial={{ opacity: 0, scale: 0.8 }}
-                                                    animate={{ opacity: 1, scale: 1 }}
-                                                    className="flex items-center"
-                                                >
-                                                    <button
-                                                        onClick={(e) => handleEditClick(e, chat)}
-                                                        className="p-1 rounded hover:bg-blue-500/20 text-blue-500"
-                                                        title="Edit title"
-                                                    >
-                                                        <Pencil size={14} /> 
-                                                    </button>
-                                                    <button
-                                                        onClick={(e) => handleDeleteChat(chat.id, e)}
-                                                        className="p-1 rounded hover:bg-red-500/20 text-red-500"
-                                                        title="Delete chat"
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                </motion.div>
-                                            )}
-                                        </div>
-                                    </motion.div>
-                                </React.Fragment>
-                            );
-                        })}
+                                return (
+                                    <React.Fragment key={chat.id}>
+                                        {categoryHeader}
+                                        <ChatItem
+                                            chat={chat}
+                                            depth={chat.depth}
+                                            isActive={activeChatId === chat.id}
+                                            onSelect={setActiveChatId}
+                                            onDelete={handleDeleteChat}
+                                            onEdit={handleEditClick}
+                                            isEditing={editingChatId === chat.id}
+                                            editingTitle={editingTitle}
+                                            onTitleChange={handleTitleChange}
+                                            onSaveTitle={handleSaveTitle}
+                                            onCancelEdit={handleCancelEdit}
+                                        />
+                                    </React.Fragment>
+                                );
+                            });
+                        })()}
                     </AnimatePresence>
                 </div>
 
-                {/* Glass Sign in button at bottom */}
                 {isGuest && (
                     <div className="p-4 border-t border-black/10 dark:border-white/10">
-                        {/* Sign in prompt text */}
                         <div className="text-center mb-3">
                             <span className="text-xs text-slate-500 dark:text-gray-400">
                                 <span className="text-red-400">*</span> Sign in to save your chats
@@ -425,7 +459,6 @@ const Sidebar = ({ isOpen, toggle }) => {
                                     <span className="text-sm font-medium text-slate-600/80 dark:text-gray-300/80 backdrop-blur-sm bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full border border-white/30 dark:border-white/10 transition-all duration-300 group-hover:text-slate-700 dark:group-hover:text-gray-200 group-hover:bg-white/30 dark:group-hover:bg-black/30">
                                         Sign in
                                     </span>
-                                    {/* Shine effect */}
                                     <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-white/40 dark:via-white/20 to-transparent animate-pulse" />
                                 </div>
                                 <div className="mt-1 flex justify-center">

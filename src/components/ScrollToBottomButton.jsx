@@ -9,21 +9,22 @@ const ScrollToBottomButton = ({ containerRef, activeChatId }) => {
         const container = containerRef.current;
         if (!container) return;
 
+        // Immediately hide button when chat changes
         setIsVisible(false);
 
         const handleScroll = () => {
             const { scrollTop, scrollHeight, clientHeight } = container;
             const isScrollable = scrollHeight > clientHeight;
-            const isScrolledUp = (scrollHeight - scrollTop) > (clientHeight + 200);
+            // Only show button if user has scrolled up significantly from the bottom
+            const isScrolledUp = (scrollHeight - scrollTop) > (clientHeight + 150);
             setIsVisible(isScrollable && isScrolledUp);
         };
 
-        const timer = setTimeout(handleScroll, 150);
-
+        // Don't check visibility immediately when chat changes
+        // Only check when user actually scrolls
         container.addEventListener('scroll', handleScroll, { passive: true });
         
         return () => {
-            clearTimeout(timer);
             container.removeEventListener('scroll', handleScroll);
         };
     }, [containerRef, activeChatId]);

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, AlertTriangle, CheckCircle } from 'lucide-react';
+import { X, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import GlassPanel from '../components/GlassPanel';
 
 const NotificationContext = createContext(null);
@@ -10,8 +10,9 @@ export const useNotification = () => useContext(NotificationContext);
 
 const Notification = ({ message, type, onDismiss }) => {
     const isError = type === 'error';
-    const bgColor = isError ? 'bg-red-500/80 border-red-400' : 'bg-green-500/80 border-green-400';
-    const Icon = isError ? AlertTriangle : CheckCircle;
+    const isInfo = type === 'info';
+    const bgColor = isError ? 'bg-red-500/80 border-red-400' : (isInfo ? 'bg-blue-500/80 border-blue-400' : 'bg-green-500/80 border-green-400');
+    const Icon = isError ? AlertTriangle : (isInfo ? Info : CheckCircle);
 
     return (
         <motion.div
@@ -80,7 +81,7 @@ export const NotificationProvider = ({ children }) => {
     const [notifications, setNotifications] = useState([]);
     const [confirmationState, setConfirmationState] = useState({ isOpen: false });
 
-    const addNotification = useCallback((message, type = 'error') => {
+    const addNotification = useCallback((message, type = 'success') => {
         const id = Date.now();
         setNotifications(prev => [...prev, { id, message, type }]);
 

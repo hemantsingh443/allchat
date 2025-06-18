@@ -16,20 +16,13 @@ import { allModels, modelCategories } from '../data/models';
 import { useNotification } from '../contexts/NotificationContext';
 import ScrollToBottomButton from './ScrollToBottomButton';
 import SettingsModal from './SettingsModal';
+import { CapabilityIcons } from './BranchModelSelector';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const GUEST_TRIAL_LIMIT = 8;
 const GUEST_TRIAL_COUNT_KEY = 'allchat-guest-trials';
 
-
-const CapabilityIcons = ({ capabilities = {} }) => (
-    <div className="flex items-center gap-2.5 text-slate-400">
-        {capabilities.vision && <Eye size={15} className="text-green-400" title="Vision Enabled" />}
-        {capabilities.reasoning && <Brain size={15} className="text-purple-400" title="Advanced Reasoning" />}
-        {capabilities.code && <Code size={15} className="text-orange-400" title="Code Generation" />}
-    </div>
-);
 
 const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, openSettings }) => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -90,8 +83,8 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                                                                     </span>
                                                                 )}
                                                                 <Info size={14} className="text-slate-500" />
-            </div>
-                                                            <CapabilityIcons capabilities={model.capabilities} />
+                                                            </div>
+                                                            <CapabilityIcons capabilities={model.capabilities} size={15} />
                                                         </button>
                                                     ))}
                                                 </div>
@@ -112,10 +105,10 @@ const WelcomeScreen = ({ onSuggestionClick, user }) => {
     const greeting = user?.firstName ? `How can I help you, ${user.firstName}?` : "How can I help you?";
 
     const actionButtons = [
-        { icon: <Sparkles size={16} />, label: "Create" },
-        { icon: <Search size={16} />, label: "Explore" },
-        { icon: <Code size={16} />, label: "Code" },
-        { icon: <BookOpen size={16} />, label: "Learn" },
+        { icon: <Sparkles size={16} />, label: "Create", gradient: "from-pink-100 to-pink-200 dark:from-pink-600 dark:to-pink-700" },
+        { icon: <Search size={16} />, label: "Explore", gradient: "from-blue-100 to-blue-200 dark:from-blue-600 dark:to-blue-700" },
+        { icon: <Code size={16} />, label: "Code", gradient: "from-purple-100 to-purple-200 dark:from-purple-600 dark:to-purple-700" },
+        { icon: <BookOpen size={16} />, label: "Learn", gradient: "from-green-100 to-green-200 dark:from-green-600 dark:to-green-700" },
     ];
 
     const suggestionPrompts = [
@@ -155,9 +148,9 @@ const WelcomeScreen = ({ onSuggestionClick, user }) => {
                 {actionButtons.map((btn, index) => (
                     <motion.button 
                         key={index}
-                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-white/5 dark:bg-black/10 backdrop-blur-sm border border-white/10 dark:border-white/5 text-slate-700 dark:text-gray-300 shadow-sm"
-                        whileHover={{ scale: 1.05, backgroundColor: 'rgba(255, 255, 255, 0.1)', y: -2 }}
-                        whileTap={{ scale: 0.95 }}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-br ${btn.gradient} shadow-sm border border-white/10 dark:border-white/5 text-slate-700 dark:text-gray-100 backdrop-blur-md transition-colors duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-pink-300/40 dark:focus:ring-pink-800/40`}
+                        whileHover={{ scale: 1.07, y: -2 }}
+                        whileTap={{ scale: 0.97 }}
                     >
                         {btn.icon}
                         <span className="text-sm font-medium">{btn.label}</span>
@@ -255,92 +248,49 @@ const ImageViewerModal = ({ imageUrl, onClose }) => (
     </Transition>
 );
 
-const SearchingIndicator = () => {
+const ProcessingIndicator = ({ icon, text }) => {
     const dots = {
         hidden: { opacity: 0 },
         visible: (i) => ({
+            y: [0, -4, 0],
             opacity: 1,
-            transition: { delay: i * 0.2, repeat: Infinity, repeatType: "reverse", duration: 0.6 }
+            transition: { delay: i * 0.2, repeat: Infinity, duration: 0.8, ease: "easeInOut" }
         })
     };
     return (
-        <motion.div 
+        <motion.div
             className="flex justify-start my-4"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
         >
-            <GlassPanel className="p-3">
-                <div className="flex items-center gap-3 text-slate-500 dark:text-gray-400 text-sm">
-                    <Globe size={16} />
-                    <span>Searching the web</span>
-                    <motion.div className="flex gap-1">
-                        {[0, 1, 2].map(i => 
-                            <motion.div key={i} custom={i} variants={dots} initial="hidden" animate="visible" className="w-1 h-1 bg-slate-500 dark:bg-gray-400 rounded-full" />
-                        )}
-                    </motion.div>
-                </div>
-            </GlassPanel>
+            <div className="flex items-center gap-3 text-slate-500 dark:text-gray-400 text-sm font-medium">
+                {icon}
+                <span>{text}</span>
+                <motion.div className="flex gap-1">
+                    {[0, 1, 2].map(i =>
+                        <motion.div key={i} custom={i} variants={dots} initial="hidden" animate="visible" className="w-1.5 h-1.5 bg-slate-500 dark:bg-gray-400 rounded-full" />
+                    )}
+                </motion.div>
+            </div>
         </motion.div>
     );
 };
 
-const PDFExtractionIndicator = ({ fileName }) => {
+const LoadingIndicator = () => {
     const dots = {
         hidden: { opacity: 0 },
         visible: (i) => ({
+            y: [0, -4, 0],
             opacity: 1,
-            transition: { delay: i * 0.2, repeat: Infinity, repeatType: "reverse", duration: 0.6 }
+            transition: { delay: i * 0.2, repeat: Infinity, duration: 0.8, ease: "easeInOut" }
         })
     };
     return (
-        <motion.div 
-            className="flex justify-start my-4"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-        >
-            <GlassPanel className="p-3">
-                <div className="flex items-center gap-3 text-slate-500 dark:text-gray-400 text-sm">
-                    <FileText size={16} />
-                    <span>Extracting PDF content{fileName ? `: ${fileName}` : ''}</span>
-                    <motion.div className="flex gap-1">
-                        {[0, 1, 2].map(i => 
-                            <motion.div key={i} custom={i} variants={dots} initial="hidden" animate="visible" className="w-1 h-1 bg-slate-500 dark:bg-gray-400 rounded-full" />
-                        )}
-                    </motion.div>
-                </div>
-            </GlassPanel>
-        </motion.div>
-    );
-};
-
-const ImageProcessingIndicator = ({ fileName }) => {
-    const dots = {
-        hidden: { opacity: 0 },
-        visible: (i) => ({
-            opacity: 1,
-            transition: { delay: i * 0.2, repeat: Infinity, repeatType: "reverse", duration: 0.6 }
-        })
-    };
-    return (
-        <motion.div 
-            className="flex justify-start my-4"
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-        >
-            <GlassPanel className="p-3">
-                <div className="flex items-center gap-3 text-slate-500 dark:text-gray-400 text-sm">
-                    <Eye size={16} />
-                    <span>Processing image{fileName ? `: ${fileName}` : ''}</span>
-                    <motion.div className="flex gap-1">
-                        {[0, 1, 2].map(i => 
-                            <motion.div key={i} custom={i} variants={dots} initial="hidden" animate="visible" className="w-1 h-1 bg-slate-500 dark:bg-gray-400 rounded-full" />
-                        )}
-                    </motion.div>
-                </div>
-            </GlassPanel>
+        <motion.div className="flex gap-1.5 p-3">
+            {[0, 1, 2].map(i =>
+                <motion.div key={i} custom={i} variants={dots} initial="hidden" animate="visible" className="w-2 h-2 bg-slate-500 dark:bg-gray-400 rounded-full" />
+            )}
         </motion.div>
     );
 };
@@ -387,7 +337,6 @@ const MainContent = () => {
     const [currentMessage, setCurrentMessage] = useState('');
     const [newChatModelId, setNewChatModelId] = useState('google/gemini-1.5-flash-latest');
     const [isLoading, setIsLoading] = useState(false); // General loading for non-streaming parts
-    const [isSwitching, setIsSwitching] = useState(false); // For chat switching visual
     const [isSearchingWeb, setIsSearchingWeb] = useState(false);
     const [isSettingsOpen, setIsSettingsOpen] = useState(false);
     const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
@@ -398,6 +347,7 @@ const MainContent = () => {
     const [isExtractingPDF, setIsExtractingPDF] = useState(false);
     const [isProcessingImage, setIsProcessingImage] = useState(false);
     const [isStreaming, setIsStreaming] = useState(false); // Specifically for streaming active
+    const [notifiedChats, setNotifiedChats] = useState(new Set());
     
     const [streamingMessageContent, setStreamingMessageContent] = useState({});
     
@@ -417,21 +367,16 @@ const MainContent = () => {
     });
 
     useEffect(() => {
-        console.log("[MainContent] Messages state updated:", JSON.parse(JSON.stringify(messages)));
-    }, [messages]);
-
-    useEffect(() => {
-        console.log("[MainContent] StreamingMessageContent updated:", streamingMessageContent);
-    }, [streamingMessageContent]);
-
-    useEffect(() => {
-        console.log("[MainContent] ActiveChatId changed in state:", activeChatId);
+        if (activeChatId === null) {
+            setNewChatModelId('google/gemini-1.5-flash-latest');
+        }
     }, [activeChatId]);
-    
-    useEffect(() => {
-        console.log(`[MainContent] isLoading: ${isLoading}, isStreaming: ${isStreaming}`);
-    }, [isLoading, isStreaming]);
 
+    useEffect(() => {
+        if (isGuest) {
+            localStorage.setItem(GUEST_TRIAL_COUNT_KEY, guestTrials);
+        }
+    }, [guestTrials, isGuest]);
 
     const handleSuggestionClick = (prompt) => {
         setCurrentMessage(prompt);
@@ -450,12 +395,6 @@ const MainContent = () => {
         }, 50);
     };
 
-    useEffect(() => {
-        if (isGuest) {
-            localStorage.setItem(GUEST_TRIAL_COUNT_KEY, guestTrials);
-        }
-    }, [guestTrials, isGuest]);
-
     const checkGuestTrial = useCallback(() => {
         if (guestTrials >= GUEST_TRIAL_LIMIT) {
             addNotification('You have reached the guest trial limit. Please sign in to continue.', 'error');
@@ -470,8 +409,16 @@ const MainContent = () => {
         return true;
     }, [guestTrials, addNotification, handleSignIn]);
 
-    const activeChat = useMemo(() => chats.find(c => c.id === activeChatIdRef.current), [chats, activeChatId]); // Use activeChatId for re-memo, ref inside for value
-    const currentChatModelId = activeChat?.modelId || newChatModelId;
+    const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
+    
+    // NEW: Robust logic for determining the current model.
+    const currentChatModelId = useMemo(() => {
+        if (activeChatId === null) {
+            return newChatModelId; // For new chats
+        }
+        // For existing chats, use its modelId, or a safe default if it's missing.
+        return activeChat?.modelId || 'google/gemini-1.5-flash-latest';
+    }, [activeChatId, activeChat, newChatModelId]);
     
     const currentModelDetails = allModels.find(m => m.id === currentChatModelId);
     const needsUserKey = currentModelDetails && !currentModelDetails.id.startsWith('google/') && !currentModelDetails.isFree;
@@ -491,38 +438,21 @@ const MainContent = () => {
                 addNotification(`Switched to free model: ${freeModel.name}`, 'info');
             }
         }
-    }, [isGuest, currentModelDetails, activeChat, setChats, addNotification, setNewChatModelId]); // activeChatId removed, activeChat used
+    }, [isGuest, currentModelDetails, activeChat, setChats, addNotification]);
 
     const fetchMessages = useCallback(async (chatIdToFetch) => {
-        console.log("[FetchMessages] Called for chatIdToFetch:", chatIdToFetch);
-    
-        if (isLoading || isStreaming) {
-            console.log("[FetchMessages] Aborted: isLoading or isStreaming is true for chatId:", activeChatIdRef.current);
-            return;
-        }
-    
         if (!chatIdToFetch) {
-            console.log("[FetchMessages] chatIdToFetch is null, clearing messages for new chat.");
             setMessages([]);
-            setIsLoading(false);
-            setIsSwitching(false);
             return;
-        }
-        
-        // Only set switching if it's a different chat ID than current
-        // or if messages are empty for current (might happen on initial load of an existing chat)
-        if (chatIdToFetch !== activeChatIdRef.current || messages.length === 0) {
-            setIsSwitching(true);
         }
     
         if (isGuest) {
             const guestChat = chats.find(c => c.id === chatIdToFetch);
-            console.log("[FetchMessages] Guest mode, guestChat:", guestChat);
             setMessages(guestChat?.messages || []);
-            setTimeout(() => setIsSwitching(false), 50); // Short delay for visual feedback
             return;
         }
-    
+        
+        setIsLoading(true);
         try {
             const token = await getToken();
             const res = await fetch(`${API_URL}/api/chats/${chatIdToFetch}`, {
@@ -530,7 +460,6 @@ const MainContent = () => {
             });
             if (!res.ok) throw new Error(`Failed to fetch messages. Status: ${res.status}`);
             const data = await res.json();
-            console.log("[FetchMessages] Fetched data for", chatIdToFetch, ":", data);
             setMessages(data.map(msg => ({ 
                 ...msg, 
                 text: msg.content, 
@@ -541,55 +470,63 @@ const MainContent = () => {
             addNotification(error.message, 'error');
             setMessages([{ id: 'error-' + chatIdToFetch, text: 'Could not load this chat.', sender: 'ai', content: 'Could not load this chat.' }]);
         } finally {
-            setTimeout(() => {
-                setIsSwitching(false);
-                if (chatContainerRef.current) {
-                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-                }
-            }, 150);
-        }
-    }, [isGuest, chats, getToken, addNotification, messages.length, isLoading, isStreaming]); // Added isLoading, isStreaming
-
-    useEffect(() => {
-        console.log("[useEffect activeChatId] Changed to:", activeChatId, "Calling fetchMessages if not loading/streaming.");
-        if (!isLoading && !isStreaming) { // Guard fetchMessages
-            fetchMessages(activeChatId);
-        } else {
-            console.log("[useEffect activeChatId] Skipped fetchMessages due to isLoading/isStreaming.");
-        }
-    }, [activeChatId, fetchMessages, isLoading, isStreaming]);
-
-
-    useEffect(() => {
-        const container = chatContainerRef.current;
-        if (!container) return;
-        
-        const lastMessage = messages[messages.length - 1];
-        if (lastMessage && !lastMessage.isStreaming) { // Scroll only on new, complete messages
-            if (isAtBottomRef.current) {
-                container.scrollTo({
-                    top: container.scrollHeight,
-                    behavior: 'smooth'
-                });
+            setIsLoading(false);
+            if (chatContainerRef.current) {
+                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
             }
         }
-    }, [messages]);
+    }, [isGuest, chats, getToken, addNotification]);
 
+    useEffect(() => {
+        // Guard fetchMessages to prevent re-fetching during an ongoing operation
+        if (!isLoading && !isStreaming) {
+            fetchMessages(activeChatId);
+        }
+    }, [activeChatId, fetchMessages]);
+
+
+    // This effect manages the isAtBottomRef state based on user scroll activity.
     useEffect(() => {
         const container = chatContainerRef.current;
         if (!container) return;
 
         const handleScroll = () => {
             const { scrollTop, scrollHeight, clientHeight } = container;
-            isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 20;
+            // We consider the user "at the bottom" if they are within 50px of it.
+            // This gives a little leeway.
+            isAtBottomRef.current = scrollHeight - scrollTop - clientHeight < 50;
         };
 
         container.addEventListener('scroll', handleScroll, { passive: true });
+        
+        // Run on mount to set initial state
+        handleScroll();
+
         return () => container.removeEventListener('scroll', handleScroll);
-    }, []);
+    }, []); // Empty dependency array means this sets up the listener once.
+
+    // This effect handles the actual automatic scrolling.
+    useEffect(() => {
+        const container = chatContainerRef.current;
+        if (!container) return;
+
+        // We only auto-scroll if the user is already at the bottom.
+        // This prevents yanking the view away if they've scrolled up to read something.
+        if (isAtBottomRef.current) {
+            const isReceivingStream = isStreaming && messages[messages.length - 1]?.isStreaming;
+
+            container.scrollTo({
+                top: container.scrollHeight,
+                // 'auto' is an instant scroll, which feels best for streaming.
+                // 'smooth' is for when a new message fully arrives.
+                behavior: isReceivingStream ? 'auto' : 'smooth'
+            });
+        }
+    // This effect runs whenever the messages array changes (e.g., new message added)
+    // or when the streaming content object changes (e.g., new token/word arrives).
+    }, [messages, streamingMessageContent, isStreaming]);
     
     const processStream = useCallback(async (response, streamTargetId, optimisticUserMessageId) => {
-        console.log("[ProcessStream] Called for streamTargetId:", streamTargetId, "optimisticUserMessageId:", optimisticUserMessageId);
         if (!response.ok || !response.body) {
             const errorData = await response.json().catch(() => ({error: 'Streaming request failed with status ' + response.status}));
             console.error("[ProcessStream] Response not OK or no body:", errorData.error);
@@ -606,7 +543,6 @@ const MainContent = () => {
         while (true) {
             const { done, value } = await reader.read();
             if (done) {
-                console.log("[ProcessStream] Stream finished for streamTargetId:", streamTargetId);
                 break;
             }
 
@@ -620,15 +556,8 @@ const MainContent = () => {
                     try {
                         const data = JSON.parse(line.slice(6));
                         
-                        const scrollToBottomIfNeeded = () => {
-                            if (isAtBottomRef.current && chatContainerRef.current) {
-                                chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-                            }
-                        };
-                        
                         switch (data.type) {
                             case 'chat_info':
-                                console.log("[ProcessStream] Received chat_info:", data);
                                 if (data.newChat) {
                                     receivedNewChatInfo = data.newChat; 
                                     setChats(p => {
@@ -653,7 +582,6 @@ const MainContent = () => {
                                     ...prev, 
                                     [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator } 
                                 }));
-                                scrollToBottomIfNeeded();
                                 break;
                             case 'reasoning_word':
                                 currentContentAccumulator.reasoning += data.content;
@@ -661,10 +589,8 @@ const MainContent = () => {
                                      ...prev, 
                                      [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator } 
                                  }));
-                                scrollToBottomIfNeeded();
                                 break;
                             case 'complete':
-                                console.log("[ProcessStream] Received complete event:", data);
                                 if (data.aiMessage) {
                                     const finalAiMsg = { ...data.aiMessage, text: data.aiMessage.content, isStreaming: false };
                                     setMessages(prevMsgs => prevMsgs.map(msg => 
@@ -673,17 +599,12 @@ const MainContent = () => {
                                             : msg
                                     ));
                                     
+                                    // This logic is complex and might be simplified, but let's keep it for now
                                     if (receivedNewChatInfo && receivedNewChatInfo.id === data.chatId) {
                                         setChats(prevChats => prevChats.map(chat => {
                                             if (chat.id === receivedNewChatInfo.id) {
-                                                const userMsgFromChatInfo = messages.find(m => m.id === optimisticUserMessageId && m.chatId === receivedNewChatInfo.id) || 
-                                                                          messages.find(m => m.chatId === receivedNewChatInfo.id && m.sender === 'user');
-                                                
-                                                let newChatMessages = [];
-                                                if (userMsgFromChatInfo) newChatMessages.push(userMsgFromChatInfo);
-                                                newChatMessages.push(finalAiMsg);
-                                                
-                                                return { ...chat, messages: newChatMessages.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt)) };
+                                                const finalMessagesForChat = messages.map(m => m.id === streamTargetId ? finalAiMsg : (m.id === optimisticUserMessageId && data.userMessage ? {...data.userMessage, text: data.userMessage.content} : m));
+                                                return { ...chat, messages: finalMessagesForChat.sort((a,b) => new Date(a.createdAt) - new Date(b.createdAt)) };
                                             }
                                             return chat;
                                         }));
@@ -691,10 +612,18 @@ const MainContent = () => {
                                 }
                                 reader.cancel();
                                 return; 
+                            case 'key_usage': {
+                                const currentChatId = activeChatIdRef.current;
+                                if (data.source === 'server_default' && currentChatId && !notifiedChats.has(currentChatId)) {
+                                    addNotification('Using default API key for this request. Add your own in settings for more options.', 'info');
+                                    setNotifiedChats(prev => new Set(prev).add(currentChatId));
+                                }
+                                break;
+                            }
                             case 'error':
                                 console.error("[ProcessStream] Received error event from server:", data.error);
                                 addNotification(`Server error: ${data.error}`, 'error');
-                                throw new Error(data.error); 
+                                throw new Error(data.error);
                         }
                     } catch (e) {
                         console.error('[ProcessStream] Error parsing streaming data line or processing event:', line, e);
@@ -703,12 +632,10 @@ const MainContent = () => {
                 boundary = buffer.indexOf('\n');
             }
         }
-    }, [setChats, setActiveChatId, setMessages, addNotification, messages]); // Added messages to deps for chat_info userMsg
+    }, [setChats, setActiveChatId, addNotification, notifiedChats, messages]);
 
 
     const handleStreamingRequest = useCallback(async (endpoint, body, streamTargetId, optimisticUserMessageId) => {
-        console.log("[HandleStreamingRequest] Called. Endpoint:", endpoint, "streamTargetId:", streamTargetId);
-        // Set visual indicators based on body content if needed (e.g., useWebSearch, fileMimeType)
         if (body.useWebSearch) setIsSearchingWeb(true);
         if (body.fileMimeType === 'application/pdf') setIsExtractingPDF(true);
         if (body.fileMimeType?.startsWith('image/')) setIsProcessingImage(true);
@@ -720,17 +647,15 @@ const MainContent = () => {
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify(body),
             });
-            console.log("[HandleStreamingRequest] Fetch response received, status:", response.status);
             await processStream(response, streamTargetId, optimisticUserMessageId);
         } catch (error) {
             console.error('[HandleStreamingRequest] Streaming error:', error);
             addNotification(error.message || 'An error occurred during streaming.', 'error');
             setMessages(prev => prev.filter(m => m.id !== streamTargetId && (optimisticUserMessageId ? m.id !== optimisticUserMessageId : true) ));
         } finally {
-            console.log("[HandleStreamingRequest] Finally block for streamTargetId:", streamTargetId);
-            setIsLoading(false); // Request is done
-            setIsStreaming(false); // Streaming phase is over
-            setIsSearchingWeb(false); // Clear visual indicators
+            setIsLoading(false);
+            setIsStreaming(false);
+            setIsSearchingWeb(false);
             setIsExtractingPDF(false);
             setIsProcessingImage(false);
             setStreamingMessageContent(prev => {
@@ -740,36 +665,8 @@ const MainContent = () => {
         }
     }, [getToken, addNotification, processStream, setMessages]); 
 
-    const handleStreamingRegeneration = useCallback(async (
-        userMessageIdToRegenFrom, 
-        newContentForUserMessage, 
-        streamTargetId,           
-        modelIdToUse,
-        shouldUseWebSearch
-    ) => {
-        console.log("[HandleStreamingRegeneration] Called. userMessageIdToRegenFrom:", userMessageIdToRegenFrom, "streamTargetId:", streamTargetId);
-        setIsLoading(true); // Indicate activity
-        setIsStreaming(true);
-        await handleStreamingRequest(
-            '/api/chat/regenerate/stream',
-            {
-                messageId: userMessageIdToRegenFrom, 
-                newContent: newContentForUserMessage,    
-                chatId: activeChatIdRef.current, 
-                modelId: modelIdToUse,
-                useWebSearch: shouldUseWebSearch,
-                userApiKey: userKeys.openrouter,
-                userTavilyKey: userKeys.tavily,
-                maximizeTokens: maximizeTokens,
-            },
-            streamTargetId, 
-            userMessageIdToRegenFrom 
-        );
-    }, [userKeys.openrouter, userKeys.tavily, handleStreamingRequest, maximizeTokens]);
-
     const streamGuestResponse = useCallback(async (messagesForAI, streamTargetId, modelIdToUse) => {
-        console.log("[StreamGuestResponse] Called. streamTargetId:", streamTargetId, "Messages for AI:", messagesForAI);
-        setIsLoading(true); // Indicate activity
+        setIsLoading(true);
         setIsStreaming(true);
         try {
             const body = {
@@ -782,11 +679,9 @@ const MainContent = () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(body),
             });
-            console.log("[StreamGuestResponse] Fetch response status:", response.status);
             
             if (!response.ok || !response.body) {
                 const errorData = await response.json().catch(() => ({error: 'Guest stream request failed'}));
-                console.error("[StreamGuestResponse] Error response from server:", errorData);
                 throw new Error(errorData.error);
             }
 
@@ -797,10 +692,7 @@ const MainContent = () => {
 
             while (true) {
                 const { done, value } = await reader.read();
-                if (done) {
-                    console.log("[StreamGuestResponse] Stream finished for streamTargetId:", streamTargetId);
-                    break;
-                }
+                if (done) break;
 
                 buffer += decoder.decode(value, { stream: true });
                 let boundary;
@@ -811,90 +703,56 @@ const MainContent = () => {
                     if (line.startsWith('data: ')) {
                         try {
                             const data = JSON.parse(line.slice(6));
-                            const scrollToBottomIfNeeded = () => {
-                                if (isAtBottomRef.current && chatContainerRef.current) {
-                                    chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-                                }
-                            };
                             if (data.type === 'complete') {
-                                console.log("[StreamGuestResponse] Received complete event.");
                                 reader.cancel();
                                 break; 
                             }
                             if (data.type === 'content_word') {
                                 currentContentAccumulator.content += data.content;
-                                setStreamingMessageContent(prev => ({
-                                    ...prev,
-                                    [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator }
-                                }));
-                                scrollToBottomIfNeeded();
+                                setStreamingMessageContent(prev => ({ ...prev, [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator } }));
                             }
                             if (data.type === 'reasoning_word') { 
                                 currentContentAccumulator.reasoning += data.content;
-                                 setStreamingMessageContent(prev => ({
-                                    ...prev,
-                                    [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator }
-                                }));
-                                scrollToBottomIfNeeded();
+                                 setStreamingMessageContent(prev => ({ ...prev, [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator } }));
                             }
-                            if (data.type === 'error') {
-                                console.error("[StreamGuestResponse] Received error event from server:", data.error);
-                                addNotification(`Server error: ${data.error}`, 'error');
-                                throw new Error(data.error);
-                            }
-                        } catch (e) { 
-                            console.error('[StreamGuestResponse] Error parsing streaming data line:', line, e);
-                        }
+                            if (data.type === 'error') throw new Error(data.error);
+                        } catch (e) { console.error('[StreamGuestResponse] Error parsing streaming data line:', line, e); }
                     }
                 }
             }
             
             const finalAiMessage = { 
-                id: streamTargetId, 
-                sender: 'ai', 
-                role: 'ai', // Add role for consistency
-                content: currentContentAccumulator.content,
-                text: currentContentAccumulator.content, 
+                id: streamTargetId, sender: 'ai', role: 'ai',
+                content: currentContentAccumulator.content, text: currentContentAccumulator.content, 
                 reasoning: currentContentAccumulator.reasoning,
-                createdAt: new Date().toISOString(), 
-                modelId: modelIdToUse,
-                isStreaming: false
+                createdAt: new Date().toISOString(), modelId: modelIdToUse, isStreaming: false
             };
-            console.log("[StreamGuestResponse] Finalizing guest AI message:", finalAiMessage);
 
             setMessages(prevLocalMessages => {
                 const updatedLocalMessages = prevLocalMessages.map(m => m.id === streamTargetId ? finalAiMessage : m);
-                const currentActiveChatIdVal = activeChatIdRef.current;
-
-                if (!currentActiveChatIdVal || !chats.find(c => c.id === currentActiveChatIdVal)) {
-                     const newChatId = `guest-chat-${Date.now()}`;
-                     const newChat = {
-                        id: newChatId,
-                        title: (updatedLocalMessages[0]?.content || updatedLocalMessages[0]?.text || "New Guest Chat").substring(0, 30) ,
-                        createdAt: new Date().toISOString(),
-                        modelId: modelIdToUse,
-                        messages: updatedLocalMessages, 
-                    };
-                    console.log("[StreamGuestResponse] Creating new guest chat locally:", newChat);
-                    setChats(prevChats => [newChat, ...prevChats]);
-                    setActiveChatId(newChatId); 
-                } else {
-                    setChats(prevChats => prevChats.map(c => 
-                        c.id === currentActiveChatIdVal 
-                        ? { ...c, messages: updatedLocalMessages } 
-                        : c
-                    ));
-                }
+                
+                setChats(prevChats => {
+                    const currentActiveChatIdVal = activeChatIdRef.current;
+                    if (!currentActiveChatIdVal || !prevChats.find(c => c.id === currentActiveChatIdVal)) {
+                        const newChatId = `guest-chat-${Date.now()}`;
+                        const newChat = {
+                            id: newChatId,
+                            title: (updatedLocalMessages[0]?.content || "New Chat").substring(0, 30),
+                            createdAt: new Date().toISOString(), modelId: modelIdToUse, messages: updatedLocalMessages, 
+                        };
+                        setActiveChatId(newChatId); 
+                        return [newChat, ...prevChats];
+                    } else {
+                        return prevChats.map(c => c.id === currentActiveChatIdVal ? { ...c, messages: updatedLocalMessages } : c);
+                    }
+                });
                 return updatedLocalMessages; 
             });
 
-
         } catch (error) {
-            console.error("[StreamGuestResponse] Error:", error);
             addNotification(error.message, 'error');
             setMessages(prev => prev.filter(m => m.id !== streamTargetId)); 
         } finally {
-            console.log("[StreamGuestResponse] Finally block for streamTargetId:", streamTargetId);
             setIsLoading(false);
             setIsStreaming(false);
             setStreamingMessageContent(prev => {
@@ -902,110 +760,92 @@ const MainContent = () => {
                 return rest;
             });
         }
-    }, [addNotification, setChats, setActiveChatId, setMessages, chats]);
+    }, [addNotification, setChats, setActiveChatId, setMessages]);
 
 
     const handleEditAndResubmit = useCallback(async (userMessageId, newContent) => {
-        console.log("[HandleEditAndResubmit] Called. UserMessageId:", userMessageId, "NewContent:", newContent);
-        const messageIndex = messages.findIndex(m => m.id === userMessageId);
-        if (messageIndex === -1) {
-            console.error("[HandleEditAndResubmit] Original user message not found.");
-            return;
-        }
+        const currentActiveChatIdVal = activeChatIdRef.current;
+        const chatModelId = activeChat?.modelId || newChatModelId;
+        let originalUserMessage = null;
 
-        const updatedUserMessageForDisplay = {
-            ...messages[messageIndex],
-            content: newContent,
-            text: newContent, 
-            editCount: (messages[messageIndex].editCount || 0) + 1,
+        const streamTargetId = isGuest ? `guest-streaming-ai-${Date.now()}` : `streaming-ai-${Date.now()}`;
+        const placeholderAiMessage = {
+            id: streamTargetId, sender: 'ai', role: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: chatModelId
         };
         
-        const history = messages.slice(0, messageIndex);
-        const messagesForDisplay = [...history, updatedUserMessageForDisplay];
+        setMessages(prevMessages => {
+            const messageIndex = prevMessages.findIndex(m => m.id === userMessageId);
+            if (messageIndex === -1) {
+                console.error("[HandleEditAndResubmit] Original user message not found.");
+                return prevMessages;
+            }
+            originalUserMessage = prevMessages[messageIndex];
+            const updatedUserMessageForDisplay = { ...originalUserMessage, content: newContent, text: newContent, editCount: (originalUserMessage.editCount || 0) + 1 };
+            return [...prevMessages.slice(0, messageIndex), updatedUserMessageForDisplay, placeholderAiMessage];
+        });
+
+        if (!originalUserMessage) return;
 
         if (isGuest) {
             if (!checkGuestTrial()) return;
-            const streamTargetId = `guest-streaming-ai-${Date.now()}`;
-            const placeholderAiMessage = {
-                id: streamTargetId, sender: 'ai', role: 'ai', content: '',text:'', reasoning: '', isStreaming: true, modelId: currentChatModelId
-            };
-            
-            const allMessagesForGuestCall = [...messagesForDisplay, placeholderAiMessage];
-            setMessages(allMessagesForGuestCall);
-            
-            const messagesForAIGuest = messagesForDisplay.map(m => ({sender: m.sender || m.role, content: m.content}));
-
-            await streamGuestResponse(messagesForAIGuest, streamTargetId, currentChatModelId); 
+            const history = messages.slice(0, messages.findIndex(m => m.id === userMessageId));
+            const messagesForAIGuest = [...history, { ...originalUserMessage, content: newContent }].map(m => ({sender: m.sender || m.role, content: m.content}));
+            await streamGuestResponse(messagesForAIGuest, streamTargetId, chatModelId); 
             return;
         }
             
-        const streamTargetId = `streaming-ai-${Date.now()}`;
-        const placeholderAiMessage = {
-            id: streamTargetId, sender: 'ai', role: 'ai', text: '', content:'', reasoning: '', isStreaming: true, modelId: currentChatModelId
-        };
-
-        setMessages([...messagesForDisplay, placeholderAiMessage]);
-
-        const originalUserMessageFromState = messages[messageIndex];
-        const shouldUseWebSearch = originalUserMessageFromState.usedWebSearch || false; 
-
-        await handleStreamingRegeneration(
-            userMessageId,      
-            newContent,         
-            streamTargetId,     
-            currentChatModelId,
-            shouldUseWebSearch
+        await handleStreamingRequest(
+            '/api/chat/regenerate/stream',
+            {
+                messageId: userMessageId, newContent, chatId: currentActiveChatIdVal, modelId: chatModelId,
+                useWebSearch: originalUserMessage.usedWebSearch || false,
+                userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily, maximizeTokens: maximizeTokens,
+            },
+            streamTargetId, userMessageId 
         );
-    }, [messages, isGuest, checkGuestTrial, currentChatModelId, handleStreamingRegeneration, streamGuestResponse, setMessages]);
+    }, [activeChat, newChatModelId, isGuest, checkGuestTrial, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, setMessages, messages]);
 
 
-    const handleFileSelect = (event) => {
+    const handleFileSelect = useCallback((event) => {
         const file = event.target.files[0];
         if (file) {
             if (file.type.startsWith('image/') || file.type === 'application/pdf') {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                const base64String = reader.result.split(',')[1];
+                const reader = new FileReader();
+                reader.onloadend = () => {
+                    const base64String = reader.result.split(',')[1];
                     setSelectedFile({ base64: base64String, mimeType: file.type, name: file.name });
                     if (file.type.startsWith('image/')) { 
                         setFilePreviewUrl(URL.createObjectURL(file));
                     } else {
                         setFilePreviewUrl(''); 
                     }
-            };
-            reader.readAsDataURL(file);
+                };
+                reader.readAsDataURL(file);
             } else {
                 addNotification('Unsupported file. Please select an image or PDF.', 'error');
             }
         }
-    };
+    }, [addNotification]);
 
-    const handleRemoveFile = () => {
+    const handleRemoveFile = useCallback(() => {
         setSelectedFile(null);
         setFilePreviewUrl('');
         if(fileInputRef.current) fileInputRef.current.value = "";
-    };
+    }, []);
     
-    const handleSendMessage = async () => {
-        console.log("[HandleSendMessage] Called. CurrentMessage:", currentMessage, "SelectedFile:", selectedFile, "Current activeChatId:", activeChatIdRef.current);
-        if ((!currentMessage.trim() && !selectedFile) || isLoading || isStreaming) {
-            console.log("[HandleSendMessage] Aborted: Empty message or already loading/streaming.");
-            return;
-        }
+    const handleSendMessage = useCallback(async () => {
+        if ((!currentMessage.trim() && !selectedFile) || isLoading || isStreaming) return;
     
-        setIsLoading(true); // Set loading true at the beginning of the send process
-        setIsStreaming(true); // Expecting a stream
+        setIsLoading(true);
+        setIsStreaming(true);
 
         const messageContentToSend = currentMessage;
         const currentActiveChatIdVal = activeChatIdRef.current; 
+        const chatModelId = activeChat?.modelId || newChatModelId;
     
         if (isGuest) {
-            if (selectedFile) {
-                addNotification('File attachments are not available in guest mode. Please sign in.', 'error');
-                setIsLoading(false); setIsStreaming(false); return;
-            }
-            if (isWebSearchEnabled) {
-                addNotification('Web search is not available in guest mode. Please sign in.', 'error');
+            if (selectedFile || isWebSearchEnabled) {
+                addNotification('File attachments and web search are not available in guest mode.', 'error');
                 setIsLoading(false); setIsStreaming(false); return;
             }
             if (!checkGuestTrial()) {
@@ -1013,34 +853,23 @@ const MainContent = () => {
             }
     
             const optimisticUserMessage = {
-                id: `guest-msg-${Date.now()}`,
-                content: messageContentToSend,
-                text: messageContentToSend, 
-                sender: 'user', 
-                role: 'user',
-                createdAt: new Date().toISOString()
+                id: `guest-msg-${Date.now()}`, content: messageContentToSend, text: messageContentToSend, 
+                sender: 'user', role: 'user', createdAt: new Date().toISOString()
             };
             const streamTargetId = `guest-streaming-ai-${Date.now()}`;
             const placeholderAiMessage = {
-                id: streamTargetId, sender: 'ai', role: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: currentChatModelId
+                id: streamTargetId, sender: 'ai', role: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: chatModelId
             };
             
-            const baseMessages = currentActiveChatIdVal && chats.find(c=>c.id === currentActiveChatIdVal) 
-                               ? messages 
-                               : []; // If new guest chat, start with empty base messages
-            const newDisplayMessages = [...baseMessages, optimisticUserMessage, placeholderAiMessage];
-
-            setMessages(newDisplayMessages);
+            const baseMessages = currentActiveChatIdVal && chats.find(c=>c.id === currentActiveChatIdVal) ? messages : [];
+            setMessages([...baseMessages, optimisticUserMessage, placeholderAiMessage]);
             setCurrentMessage('');
     
             const messagesForGuestAPI = [...baseMessages, optimisticUserMessage].map(m => ({ sender: m.sender || m.role, content: m.content }));
-            console.log("[HandleSendMessage] Guest: Calling streamGuestResponse with messagesForGuestAPI:", messagesForGuestAPI, "streamTargetId:", streamTargetId);
-            await streamGuestResponse(messagesForGuestAPI, streamTargetId, currentChatModelId);
-            // isLoading and isStreaming will be reset in streamGuestResponse's finally block
+            await streamGuestResponse(messagesForGuestAPI, streamTargetId, chatModelId);
             return;
         }
     
-        // ---- Logged-in user flow ----
         const fileForMessagePayload = selectedFile; 
         const previewUrlForOptimisticMessage = filePreviewUrl; 
     
@@ -1048,21 +877,15 @@ const MainContent = () => {
         handleRemoveFile(); 
     
         const optimisticUserMessage = {
-            id: `temp-user-${Date.now()}`,
-            role: 'user', 
-            sender: 'user', 
-            content: messageContentToSend,
-            text: messageContentToSend, 
+            id: `temp-user-${Date.now()}`, role: 'user', sender: 'user', content: messageContentToSend, text: messageContentToSend, 
             imageUrl: fileForMessagePayload?.mimeType.startsWith('image/') ? previewUrlForOptimisticMessage : null, 
-            fileName: fileForMessagePayload?.name,
-            fileType: fileForMessagePayload?.mimeType,
-            usedWebSearch: isWebSearchEnabled,
-            createdAt: new Date().toISOString(), 
+            fileName: fileForMessagePayload?.name, fileType: fileForMessagePayload?.mimeType,
+            usedWebSearch: isWebSearchEnabled, createdAt: new Date().toISOString(), 
         };
     
         const streamTargetId = `streaming-ai-${Date.now()}`;
         const placeholderAiMessage = {
-            id: streamTargetId, role: 'ai', sender: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: currentChatModelId, createdAt: new Date().toISOString()
+            id: streamTargetId, role: 'ai', sender: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: chatModelId, createdAt: new Date().toISOString()
         };
         
         const baseMessagesForNewInteraction = currentActiveChatIdVal ? messages : [];
@@ -1070,34 +893,23 @@ const MainContent = () => {
         
         const messagesForApi = [...baseMessagesForNewInteraction, { role: 'user', content: messageContentToSend }].map(m => ({ role: m.role || m.sender, content: m.content }));
     
-        console.log("[HandleSendMessage] Logged-in: Calling handleStreamingRequest. streamTargetId:", streamTargetId, "optimisticUserMessage.id:", optimisticUserMessage.id, "API chatId:", currentActiveChatIdVal);
-        console.log("[HandleSendMessage] maximizeTokens value:", maximizeTokens);
         await handleStreamingRequest(
             '/api/chat/stream',
             {
-                messages: messagesForApi, 
-                chatId: currentActiveChatIdVal, 
-                modelId: currentChatModelId,
-                useWebSearch: isWebSearchEnabled,
-                userApiKey: userKeys.openrouter,
-                userTavilyKey: userKeys.tavily,
-                fileData: fileForMessagePayload?.base64,
-                fileMimeType: fileForMessagePayload?.mimeType,
-                fileName: fileForMessagePayload?.name,
-                maximizeTokens: maximizeTokens,
+                messages: messagesForApi, chatId: currentActiveChatIdVal, modelId: chatModelId,
+                useWebSearch: isWebSearchEnabled, userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily,
+                fileData: fileForMessagePayload?.base64, fileMimeType: fileForMessagePayload?.mimeType,
+                fileName: fileForMessagePayload?.name, maximizeTokens: maximizeTokens,
             },
-            streamTargetId,
-            optimisticUserMessage.id
+            streamTargetId, optimisticUserMessage.id
         );
-        // isLoading and isStreaming will be reset in handleStreamingRequest's finally block
-    };
+    }, [currentMessage, selectedFile, isLoading, isStreaming, activeChat, newChatModelId, isGuest, checkGuestTrial, isWebSearchEnabled, chats, messages, handleRemoveFile, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse]);
     
 
     const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
     const toggleTheme = () => document.documentElement.classList.toggle('dark');
 
     const handleDeleteMessage = useCallback(async (messageIdToDelete) => {
-        console.log("[HandleDeleteMessage] Called for messageId:", messageIdToDelete);
         const currentActiveChatIdVal = activeChatIdRef.current; 
         const confirmed = await getConfirmation({
             title: "Delete Message",
@@ -1107,7 +919,7 @@ const MainContent = () => {
 
         if (!confirmed) return;
 
-        setMessages(prevMsgs => { // Optimistic UI update
+        setMessages(prevMsgs => {
             const msgIndex = prevMsgs.findIndex(m => m.id === messageIdToDelete);
             if (msgIndex === -1) return prevMsgs;
             let idsToDeleteSet = new Set([messageIdToDelete]);
@@ -1117,26 +929,19 @@ const MainContent = () => {
             return prevMsgs.filter(m => !idsToDeleteSet.has(m.id));
         });
 
-
         if (isGuest) {
             setChats(prevChats => {
                 const newChats = prevChats.map(chat => {
                     if (chat.id === currentActiveChatIdVal) {
-                        const msgIndex = chat.messages.findIndex(m => m.id === messageIdToDelete);
-                        if (msgIndex === -1) return chat;
-                        let idsToDeleteSet = new Set([messageIdToDelete]);
-                         if (chat.messages[msgIndex]?.sender === 'user' && chat.messages[msgIndex + 1]?.sender === 'ai') {
-                            idsToDeleteSet.add(chat.messages[msgIndex + 1].id);
-                        }
-                        const updatedMessages = chat.messages.filter(m => !idsToDeleteSet.has(m.id));
-                        if (updatedMessages.length === 0) return null; // Mark for removal
+                        const updatedMessages = chat.messages.filter(m => m.id !== messageIdToDelete && (chat.messages[chat.messages.findIndex(i => i.id === messageIdToDelete)+1]?.id !== m.id));
+                        if (updatedMessages.length === 0) return null;
                         return { ...chat, messages: updatedMessages };
                     }
                     return chat;
-                }).filter(Boolean); // Remove nulls (empty chats)
+                }).filter(Boolean);
 
                 if (newChats.find(c => c.id === currentActiveChatIdVal) === undefined && currentActiveChatIdVal) {
-                     setActiveChatId(null); // If active chat was deleted
+                     setActiveChatId(null);
                 }
                 return newChats;
             });
@@ -1153,8 +958,8 @@ const MainContent = () => {
 
             const data = await res.json();
             if (!res.ok || !data.success) {
-                addNotification(data.error || "Failed to delete message from server.", 'error');
-                fetchMessages(currentActiveChatIdVal); // Re-fetch to revert optimistic update
+                addNotification(data.error || "Failed to delete from server.", 'error');
+                fetchMessages(currentActiveChatIdVal);
                 return;
             }
 
@@ -1162,90 +967,63 @@ const MainContent = () => {
 
             if (data.chatDeleted) {
                 setChats(prev => prev.filter(c => c.id !== data.deletedChatId));
-                if (currentActiveChatIdVal === data.deletedChatId) {
-                    setActiveChatId(null);
-                }
-                addNotification('Chat deleted.', 'info');
-            } else if (data.deletedIds && data.deletedIds.length > 0) {
-                // If not chatDeleted, but messages were deleted, ensure sidebar chat entry is updated
-                // This might involve re-fetching chat list or making sidebar smarter
-                // For now, optimistic UI on `messages` state is primary.
-                // If chat was not deleted but became empty, server might not send chatDeleted.
-                // We might need to check if messages is empty and then remove chat from sidebar.
-                const remainingMessages = messages.filter(m => !data.deletedIds.includes(m.id));
-                if (remainingMessages.length === 0 && currentActiveChatIdVal) {
-                    // This case should ideally be handled by `data.chatDeleted` from server.
-                    // If server doesn't report chatDeleted but all messages are gone,
-                    // we might need to call the deleteChat endpoint or refresh sidebar.
-                    // For now, let's assume server handles chat deletion correctly.
-                }
+                if (currentActiveChatIdVal === data.deletedChatId) setActiveChatId(null);
             }
-             if (data.promotedChats && data.promotedChats.length > 0) {
+            if (data.promotedChats && data.promotedChats.length > 0) {
                 addNotification(`${data.promotedChats.length} branched chat(s) promoted.`, 'info');
-                // Potentially re-fetch all chats for sidebar update:
-                // const updatedChats = await fetchAllChats(); setChats(updatedChats);
             }
-
-
         } catch (error) {
             addNotification(error.message, 'error');
-            fetchMessages(currentActiveChatIdVal); // Re-fetch to revert optimistic update
+            fetchMessages(currentActiveChatIdVal);
         }
-    }, [getConfirmation, isGuest, messages, setChats, setActiveChatId, addNotification, getToken, setMessages, fetchMessages]);
+    }, [getConfirmation, isGuest, setChats, setActiveChatId, addNotification, getToken, setMessages, fetchMessages]);
 
     const handleRegenerate = useCallback(async (aiMessageIdToReplace, newModelId) => {
-        console.log("[HandleRegenerate] Called for AI message ID:", aiMessageIdToReplace, "New Model ID:", newModelId);
-
-        const aiMessageIndex = messages.findIndex(m => m.id === aiMessageIdToReplace);
-        if (aiMessageIndex < 1) { 
-            console.error("[HandleRegenerate] Cannot regenerate: AI message not found or is the first message.");
-            return;
-        }
-
-        const userPromptMessage = messages[aiMessageIndex - 1];
-        if (!['user'].includes(userPromptMessage.sender || userPromptMessage.role) ) {
-            console.error("[HandleRegenerate] Cannot regenerate: Preceding message is not a user message.");
-            return;
-        }
-
-        const history = messages.slice(0, aiMessageIndex - 1);
-        const modelToUse = newModelId || currentChatModelId; 
+        let userPromptMessage = null;
+        let history = [];
+        const modelToUse = newModelId || activeChat?.modelId || newChatModelId;
         const streamTargetId = `streaming-ai-${Date.now()}`;
-        const placeholderAiMessage = {
-            id: streamTargetId, sender: 'ai', role: 'ai', content: '', text: '', reasoning: '', isStreaming: true, modelId: modelToUse
-        };
 
-        const messagesForDisplay = [...history, userPromptMessage, placeholderAiMessage];
+        setMessages(prevMessages => {
+            const aiMessageIndex = prevMessages.findIndex(m => m.id === aiMessageIdToReplace);
+            if (aiMessageIndex < 1) {
+                console.error("Cannot regenerate: AI message not found or is first.");
+                return prevMessages;
+            }
+            userPromptMessage = prevMessages[aiMessageIndex - 1];
+            if (userPromptMessage.sender !== 'user') {
+                 console.error("Cannot regenerate: Preceding message is not from user.");
+                 return prevMessages;
+            }
+            history = prevMessages.slice(0, aiMessageIndex - 1);
+            const placeholderAiMessage = { id: streamTargetId, sender: 'ai', role: 'ai', content: '', text: '', reasoning: '', isStreaming: true, modelId: modelToUse };
+            return [...history, userPromptMessage, placeholderAiMessage];
+        });
 
-        if (isGuest) {
-            if (!checkGuestTrial()) return;
-            setMessages(messagesForDisplay);
-            const messagesForAIGuest = [...history, userPromptMessage].map(m => ({sender: m.sender || m.role, content: m.content}));
-            await streamGuestResponse(messagesForAIGuest, streamTargetId, modelToUse);
-            return;
-        }
-        
-        setMessages(messagesForDisplay); 
+        // Use a timeout to ensure the state has updated before proceeding
+        setTimeout(async () => {
+            if (!userPromptMessage) return;
 
-        const shouldUseWebSearch = userPromptMessage.usedWebSearch || false;
-        
-        let contentForRegeneration = userPromptMessage.content;
-        if (!contentForRegeneration && (userPromptMessage.imageUrl || userPromptMessage.fileName)) { 
-            contentForRegeneration = userPromptMessage.imageUrl ? "[Image uploaded]" : `[File: ${userPromptMessage.fileName}]`;
-        }
-
-
-        await handleStreamingRegeneration(
-            userPromptMessage.id,       
-            contentForRegeneration,     
-            streamTargetId,             
-            modelToUse,
-            shouldUseWebSearch
-        );
-    }, [messages, isGuest, checkGuestTrial, streamGuestResponse, currentChatModelId, handleStreamingRegeneration, setMessages]);
+            if (isGuest) {
+                if (!checkGuestTrial()) return;
+                const messagesForAIGuest = [...history, userPromptMessage].map(m => ({sender: m.sender || m.role, content: m.content}));
+                await streamGuestResponse(messagesForAIGuest, streamTargetId, modelToUse);
+                return;
+            }
+            
+            await handleStreamingRequest(
+                '/api/chat/regenerate/stream',
+                {
+                    messageId: userPromptMessage.id, newContent: userPromptMessage.content, chatId: activeChatIdRef.current, modelId: modelToUse,
+                    useWebSearch: userPromptMessage.usedWebSearch || false,
+                    userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily, maximizeTokens: maximizeTokens,
+                },
+                streamTargetId, userPromptMessage.id
+            );
+        }, 0);
+    }, [activeChat, newChatModelId, isGuest, checkGuestTrial, userKeys, maximizeTokens, streamGuestResponse, handleStreamingRequest, setMessages]);
 
     const handleBranch = useCallback(async (fromAiMessageId, newBranchModelId) => {
-        console.log("[HandleBranch] Called for AI message ID:", fromAiMessageId, "New Model ID:", newBranchModelId);
         const currentActiveChatIdVal = activeChatIdRef.current; 
 
         if (isGuest) {
@@ -1255,74 +1033,91 @@ const MainContent = () => {
             const messageIndex = sourceChat.messages.findIndex(m => m.id === fromAiMessageId);
             if (messageIndex === -1) return;
 
-            const messagesToCopy = sourceChat.messages.slice(0, messageIndex + 1);
-
-            const newChatId = `guest-chat-${Date.now()}`;
             const newChat = {
-                id: newChatId,
-                title: `[Branch] ${sourceChat.title}`.substring(0, 30),
-                createdAt: new Date().toISOString(),
-                modelId: newBranchModelId, 
-                messages: messagesToCopy.map(m => ({...m, text: m.content})), 
-                sourceChatId: sourceChat.id,
-                branchedFromMessageId: fromAiMessageId,
+                id: `guest-chat-${Date.now()}`, title: `[Branch] ${sourceChat.title}`.substring(0, 30),
+                createdAt: new Date().toISOString(), modelId: newBranchModelId, 
+                messages: sourceChat.messages.slice(0, messageIndex + 1).map(m => ({...m, text: m.content})), 
+                sourceChatId: sourceChat.id, branchedFromMessageId: fromAiMessageId,
             };
 
             setChats(prev => [newChat, ...prev]);
-            setActiveChatId(newChatId); 
-
+            setActiveChatId(newChat.id); 
             addNotification(`Branched to a new guest chat.`, "success");
             return;
         }
 
         try {
-            setIsLoading(true); // Indicate branching activity
+            setIsLoading(true);
             const token = await getToken();
             const res = await fetch(`${API_URL}/api/chats/branch`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ 
-                    sourceChatId: currentActiveChatIdVal, 
-                    fromAiMessageId, 
-                    newModelId: newBranchModelId, 
-                }),
+                body: JSON.stringify({ sourceChatId: currentActiveChatIdVal, fromAiMessageId, newModelId: newBranchModelId }),
             });
             if (!res.ok) throw new Error((await res.json()).error || "Failed to branch chat.");
 
-            const newChatData = await res.json(); // This is the new chat object from server
+            const newChatData = await res.json();
             
-            // The server now copies messages. We need to add the new chat to `chats`
-            // and set it active. `fetchMessages` will then load its messages.
-            const sourceChatInfo = chats.find(c => c.id === currentActiveChatIdVal);
-            const newChatForClient = {
-                ...newChatData, // Contains id, title, modelId, userId, createdAt, sourceChatId, branchedFromMessageId
-                sourceChat: sourceChatInfo ? { // Add basic source chat info for UI if available
-                    id: sourceChatInfo.id,
-                    title: sourceChatInfo.title,
-                    modelId: sourceChatInfo.modelId,
-                } : null,
-                // messages will be loaded by fetchMessages when activeChatId changes
-            };
+            setChats(prev => [newChatData, ...prev]);
+            setActiveChatId(newChatData.id);
 
-            setChats(prev => [newChatForClient, ...prev]);
-            setActiveChatId(newChatData.id); // This will trigger fetchMessages for the new branch
-
-            addNotification(`Branched to new chat with ${allModels.find(m=>m.id===newBranchModelId)?.name || 'new model'}.`, "success");
+            addNotification(`Branched to new chat.`, "success");
         } catch (error) {
             addNotification(error.message, 'error');
         } finally {
             setIsLoading(false);
         }
-    }, [isGuest, chats, setChats, setActiveChatId, addNotification, getToken]); 
+    }, [isGuest, chats, setChats, setActiveChatId, addNotification, getToken]);
 
-    const handleGuestModelSelect = () => {
+    const handleGuestModelSelect = useCallback(() => {
         if (isGuest) {
-            addNotification("Model selection is not available in guest mode. Please sign in to use other models.", "error");
+            addNotification("Sign in to use other models.", "info");
         } else {
             setIsModelSelectorOpen(true);
         }
-    };
+    }, [isGuest, addNotification]);
+    
+    // NEW: Stable function to handle model changes, including backend persistence.
+    const handleSetSelectedModel = useCallback(async (newModelId) => {
+        if (newModelId === currentChatModelId) return;
 
+        if (activeChat) {
+            const originalModelId = activeChat.modelId;
+            setChats(prev => prev.map(c =>
+                c.id === activeChatId ? { ...c, modelId: newModelId } : c
+            ));
+
+            if (!isGuest) {
+                try {
+                    const token = await getToken();
+                    const res = await fetch(`${API_URL}/api/chats/${activeChat.id}/model`, {
+                        method: 'PATCH',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ newModelId })
+                    });
+                    if (!res.ok) throw new Error('Failed to save model change.');
+                } catch (error) {
+                    console.error("Failed to persist model change:", error);
+                    addNotification('Could not save model change.', 'error');
+                    setChats(prev => prev.map(c =>
+                        c.id === activeChatId ? { ...c, modelId: originalModelId } : c
+                    ));
+                }
+            }
+        } else {
+            setNewChatModelId(newModelId);
+        }
+    }, [activeChat, activeChatId, currentChatModelId, isGuest, getToken, setChats, setNewChatModelId, addNotification]);
+
+
+    useEffect(() => {
+        if (activeChatId === null) {
+            setNewChatModelId('google/gemini-1.5-flash-latest');
+        }
+    }, [activeChatId]);
 
     return (
         <>
@@ -1332,15 +1127,7 @@ const MainContent = () => {
                 isOpen={isModelSelectorOpen}
                 onClose={() => setIsModelSelectorOpen(false)}
                 selectedModel={currentChatModelId}
-                setSelectedModel={(newModelId) => {
-                    if (activeChat) { 
-                        setChats(prev => prev.map(c => 
-                            c.id === activeChatIdRef.current ? {...c, modelId: newModelId} : c 
-                        ));
-                    } else {
-                        setNewChatModelId(newModelId);
-                    }
-                }}
+                setSelectedModel={handleSetSelectedModel}
                 openSettings={() => setIsSettingsOpen(true)}
             />
             <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30 relative">
@@ -1361,28 +1148,34 @@ const MainContent = () => {
             </header>
                 <div
                     ref={chatContainerRef}
-                    className={`flex-1 overflow-y-auto w-full transition-opacity duration-150 ${isSwitching ? 'opacity-0' : 'opacity-100'}`}
+                    className="flex-1 overflow-y-auto w-full"
                 >
                 <div className="max-w-4xl mx-auto px-4 space-y-4 py-4">
-                        {messages.length === 0 && !activeChatIdRef.current && !isLoading && !isSwitching && !isStreaming && ( 
+                        {messages.length === 0 && !activeChatId && !isLoading && !isStreaming && ( 
                             <WelcomeScreen onSuggestionClick={handleSuggestionClick} user={user} />
                     )}
                     {messages.map((msg) => {
-                        const streamingData = streamingMessageContent[msg.id];
-                        const isMessageStreaming = !!streamingData || msg.isStreaming;
+                         const streamingData = streamingMessageContent[msg.id];
+                         const isMessageStreaming = !!streamingData || msg.isStreaming;
 
-                        const displayMessage = {
-                            ...msg,
-                            text: streamingData?.content !== undefined ? streamingData.content : (msg.text || msg.content), 
-                            reasoning: streamingData?.reasoning !== undefined ? streamingData.reasoning : msg.reasoning,
-                            isStreaming: isMessageStreaming,
-                        };
+                         const text = streamingData?.content !== undefined ? streamingData.content : (msg.text || msg.content);
+                         const reasoning = streamingData?.reasoning !== undefined ? streamingData.reasoning : msg.reasoning;
                         
                         return (
                             <ChatMessage
                                 key={msg.id}
-                                {...displayMessage}
-                                modelId={displayMessage.sender === 'ai' ? (displayMessage.modelId || (activeChat?.modelId)) : null}
+                                id={msg.id}
+                                sender={msg.sender}
+                                editCount={msg.editCount}
+                                imageUrl={msg.imageUrl}
+                                usedWebSearch={msg.usedWebSearch}
+                                fileName={msg.fileName}
+                                fileType={msg.fileType}
+                                searchResults={msg.searchResults}
+                                text={text}
+                                reasoning={reasoning}
+                                isStreaming={isMessageStreaming}
+                                modelId={msg.sender === 'ai' ? (msg.modelId || (activeChat?.modelId)) : null}
                                 handleRegenerate={handleRegenerate}
                                 handleBranch={handleBranch}
                                 handleUpdateMessage={handleEditAndResubmit}
@@ -1395,26 +1188,16 @@ const MainContent = () => {
                     })}
 
                         <AnimatePresence>
-                            {isSearchingWeb && <SearchingIndicator key="searching" />}
-                        </AnimatePresence>
-                        <AnimatePresence>
-                            {isExtractingPDF && <PDFExtractionIndicator fileName={selectedFile?.name} />}
-                        </AnimatePresence>
-                        <AnimatePresence>
-                            {isProcessingImage && <ImageProcessingIndicator key="image-processing" fileName={selectedFile?.name} />}
+                            {isSearchingWeb && <ProcessingIndicator key="searching" icon={<Globe size={16} />} text="Searching the web..." />}
+                            {isExtractingPDF && <ProcessingIndicator key="pdf" icon={<FileText size={16} />} text={`Extracting from ${selectedFile?.name}...`} />}
+                            {isProcessingImage && <ProcessingIndicator key="image-processing" icon={<Eye size={16} />} text={`Processing ${selectedFile?.name}...`} />}
                         </AnimatePresence>
                         
-                        {isLoading && !isStreaming && messages.length > 0 && !messages.some(m => m.isStreaming) && ( 
-                        <div className="flex justify-start">
-                                <GlassPanel className="p-3">
-                                    <div className="flex items-center gap-2 text-slate-600 dark:text-gray-400">
-                                        <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce"></div>
-                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce [animation-delay:0.2s]"></div>
-                                <div className="w-2 h-2 bg-slate-500 rounded-full animate-bounce [animation-delay:0.4s]"></div>
-                                    </div>
-                                </GlassPanel>
-                        </div>
-                    )}
+                        {isLoading && !isStreaming && ( 
+                            <div className="flex justify-center py-4">
+                                <LoadingIndicator />
+                            </div>
+                        )}
                 </div>
             </div>
             <div className="relative z-10 px-4 pb-4 md:px-6 md:pb-6 pt-4">

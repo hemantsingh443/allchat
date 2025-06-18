@@ -1,15 +1,67 @@
-import React from 'react';
+import React, { useState, useCallback } from 'react';
 import { Dialog, Transition } from '@headlessui/react';
 import GlassPanel from './GlassPanel';
 import { X, Info, Brain, Eye, Code } from 'lucide-react';
 import { allModels, modelCategories } from '../data/models';
 import { useApiKeys } from '../contexts/ApiKeyContext';
 
-const CapabilityIcons = ({ capabilities = {} }) => (
-    <div className="flex items-center gap-2 text-slate-400">
-        {capabilities.vision && <Eye size={14} className="text-green-400" title="Vision Enabled" />}
-        {capabilities.reasoning && <Brain size={14} className="text-purple-400" title="Advanced Reasoning" />}
-        {capabilities.code && <Code size={14} className="text-orange-400" title="Code Generation" />}
+// Enhanced CapabilityIcons component with efficient tooltips
+const CapabilityIcon = ({ icon: Icon, color, tooltip, size = 14 }) => {
+    const [showTooltip, setShowTooltip] = useState(false);
+    
+    const handleMouseEnter = useCallback(() => {
+        setShowTooltip(true);
+    }, []);
+    
+    const handleMouseLeave = useCallback(() => {
+        setShowTooltip(false);
+    }, []);
+
+    return (
+        <div 
+            className="relative inline-block"
+            onMouseEnter={handleMouseEnter}
+            onMouseLeave={handleMouseLeave}
+        >
+            <Icon size={size} className={color} />
+            {showTooltip && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50">
+                    <GlassPanel className="px-2 py-1 text-xs whitespace-nowrap">
+                        <span className="text-slate-600 dark:text-gray-300">{tooltip}</span>
+                    </GlassPanel>
+                    <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2 h-2 bg-white/10 dark:bg-black/10 rotate-45" />
+                </div>
+            )}
+        </div>
+    );
+};
+
+export const CapabilityIcons = ({ capabilities = {}, size = 14 }) => (
+    <div className="flex items-center gap-1 text-slate-400">
+        {capabilities.vision && (
+            <CapabilityIcon 
+                icon={Eye} 
+                color="text-green-400" 
+                tooltip="Vision" 
+                size={size} 
+            />
+        )}
+        {capabilities.reasoning && (
+            <CapabilityIcon 
+                icon={Brain} 
+                color="text-purple-400" 
+                tooltip="Reasoning" 
+                size={size} 
+            />
+        )}
+        {capabilities.code && (
+            <CapabilityIcon 
+                icon={Code} 
+                color="text-orange-400" 
+                tooltip="Code" 
+                size={size} 
+            />
+        )}
     </div>
 );
 

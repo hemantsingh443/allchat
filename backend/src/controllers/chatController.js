@@ -8,6 +8,40 @@ import { tavily } from '@tavily/core';
 const SITE_URL = process.env.SITE_URL || 'http://localhost:3000';
 
 // ====================================================================
+// HELPER: API KEY DETERMINATION
+// ====================================================================
+const determineApiKey = (modelId, userApiKey) => {
+    const freeModels = [
+        'mistralai/mistral-7b-instruct:free', 
+        'mistralai/devstral-small:free',
+        'deepseek/deepseek-r1:free',
+        'moonshotai/kimi-dev-72b:free'
+    ];
+    const isGoogleModel = modelId.startsWith('google/');
+    const isFreeModel = freeModels.includes(modelId);
+
+    // Google models don't need an OpenRouter key.
+    if (isGoogleModel) {
+        return { apiKey: null, usedServerKey: false };
+    }
+
+    // If a user has provided their own key, it always takes priority for non-Google models.
+    if (userApiKey) {
+        return { apiKey: userApiKey, usedServerKey: false };
+    }
+
+    // If no user key, check if it's a "free" model that the server can pay for.
+    if (isFreeModel) {
+        const serverKey = process.env.OPENROUTER_API_KEY;
+        if (!serverKey) throw new Error("The free model is not configured on the server.");
+        return { apiKey: serverKey, usedServerKey: true };
+    }
+
+    // If it's a paid model and the user hasn't provided a key, it's an error.
+    throw new Error("An OpenRouter API key is required to use this model.");
+};
+
+// ====================================================================
 // DYNAMIC TOKEN MANAGEMENT
 // ====================================================================
 const calculateMaxTokens = (options = {}) => {
@@ -190,8 +224,14 @@ export const getAllChats = (db) => async (req, res) => {
 
 export const getChatMessages = (db) => async (req, res) => {
     const { userId } = getAuth(req);
+    const chatIdParam = req.params.chatId;
+    const chatId = parseInt(chatIdParam, 10);
+
+    if (isNaN(chatId)) {
+        return res.status(400).json({ error: `Invalid Chat ID provided: ${chatIdParam}` });
+    }
+
     try {
-        const chatId = parseInt(req.params.chatId);
         const chat = await db.query.chats.findFirst({
             where: and(eq(schema.chats.id, chatId), eq(schema.chats.userId, userId))
         });
@@ -217,7 +257,12 @@ export const getChatMessages = (db) => async (req, res) => {
 
 export const deleteChat = (db) => async (req, res) => {
     const { userId } = getAuth(req);
-    const chatIdToDelete = parseInt(req.params.chatId);
+    const chatIdParam = req.params.chatId;
+    const chatIdToDelete = parseInt(chatIdParam, 10);
+
+    if (isNaN(chatIdToDelete)) {
+        return res.status(400).json({ error: `Invalid Chat ID provided: ${chatIdParam}` });
+    }
     if (!chatIdToDelete) return res.status(400).json({ error: "Chat ID is required." });
 
     try {
@@ -273,7 +318,12 @@ export const deleteChat = (db) => async (req, res) => {
 
 export const updateChatTitle = (db) => async (req, res) => {
     const { userId } = getAuth(req);
-    const chatId = parseInt(req.params.chatId);
+    const chatIdParam = req.params.chatId;
+    const chatId = parseInt(chatIdParam, 10);
+    if (isNaN(chatId)) {
+        return res.status(400).json({ error: `Invalid Chat ID provided: ${chatIdParam}` });
+    }
+
     const { newTitle } = req.body;
 
     if (!newTitle || newTitle.trim().length === 0) {
@@ -300,9 +350,49 @@ export const updateChatTitle = (db) => async (req, res) => {
     }
 };
 
+// NEW: Function to update the model for a specific chat
+export const updateChatModel = (db) => async (req, res) => {
+    const { userId } = getAuth(req);
+    const chatIdParam = req.params.chatId;
+    const chatId = parseInt(chatIdParam, 10);
+    if (isNaN(chatId)) {
+        return res.status(400).json({ error: `Invalid Chat ID provided: ${chatIdParam}` });
+    }
+
+    const { newModelId } = req.body;
+
+    if (!newModelId || typeof newModelId !== 'string') {
+        return res.status(400).json({ error: "A valid newModelId is required." });
+    }
+
+    try {
+        const [updatedChat] = await db.update(schema.chats)
+            .set({ modelId: newModelId })
+            .where(and(
+                eq(schema.chats.id, chatId),
+                eq(schema.chats.userId, userId)
+            ))
+            .returning({ id: schema.chats.id, modelId: schema.chats.modelId });
+
+        if (!updatedChat) {
+            return res.status(404).json({ error: "Chat not found or you don't have permission." });
+        }
+
+        res.status(200).json(updatedChat);
+    } catch (error) {
+        console.error("Error updating chat model:", error);
+        res.status(500).json({ error: "Failed to update chat model." });
+    }
+};
+
 export const deleteMessage = (db) => async (req, res) => {
     const { userId } = getAuth(req);
-    const messageIdToDelete = parseInt(req.params.messageId);
+    const messageIdParam = req.params.messageId;
+    const messageIdToDelete = parseInt(messageIdParam, 10);
+
+    if (isNaN(messageIdToDelete)) {
+        return res.status(400).json({ error: `Invalid Message ID provided: ${messageIdParam}` });
+    }
 
     try {
         const message = await db.query.messages.findFirst({
@@ -510,25 +600,7 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             });
             return;
         } else { 
-            let apiKeyToUse;
-            const freeModels = [
-                'google/gemini-1.5-flash-latest',
-                'google/gemini-pro-1.5',
-                'mistralai/mistral-7b-instruct:free', 
-                'mistralai/devstral-small:free',
-                'deepseek/deepseek-r1:free',
-                'moonshotai/kimi-dev-72b:free'
-            ];
-            const isFreeModel = freeModels.includes(modelId);
-
-            if (isFreeModel) {
-                apiKeyToUse = process.env.OPENROUTER_API_KEY;
-                if (!apiKeyToUse) throw new Error("The free model is not configured on the server.");
-            } else {
-                apiKeyToUse = userApiKey;
-            }
-
-            if (!apiKeyToUse) throw new Error("An OpenRouter API key is required to use this model.");
+            const { apiKey: apiKeyToUse } = determineApiKey(modelId, userApiKey);
 
             let openRouterMessageContent = [{ type: 'text', text: finalPrompt }];
             if (imageDataForAI && fileMimeType.startsWith('image/')) {
@@ -581,7 +653,7 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             usedWebSearch: useWebSearch
         }).returning();
 
-        const [aiMessage] = await db.insert(schema.messages).values({ 
+        const [newAiMessage] = await db.insert(schema.messages).values({ 
             chatId: currentChatId, 
             sender: 'ai', 
             content: aiResponseContent,
@@ -593,7 +665,7 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
         res.json({ 
             userMessage, 
             aiMessage: {
-                ...aiMessage,
+                ...newAiMessage,
                 searchResults: searchResults,
                 reasoning: reasoningData
             }, 
@@ -689,29 +761,7 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             aiResponseContent = result.response.text();
         } else {
             // Modified logic to select the correct API key
-            let apiKeyToUse;
-            const freeModels = [
-                'google/gemini-1.5-flash-latest',
-                'google/gemini-pro-1.5',
-                'mistralai/mistral-7b-instruct:free', 
-                'mistralai/devstral-small:free',
-                'deepseek/deepseek-r1:free',
-                'moonshotai/kimi-dev-72b:free'
-            ];
-            const isFreeModel = freeModels.includes(modelId);
-
-            if (isFreeModel) {
-                apiKeyToUse = process.env.OPENROUTER_API_KEY;
-                if (!apiKeyToUse) {
-                    throw new Error("The free model is not configured on the server.");
-                }
-            } else {
-                apiKeyToUse = userApiKey;
-            }
-
-            if (!apiKeyToUse) {
-                throw new Error("An OpenRouter API key is required to use this model.");
-            }
+            const { apiKey: apiKeyToUse } = determineApiKey(modelId, userApiKey);
 
             // Include search results in the system message if available
             const systemMessage = searchResults 
@@ -735,7 +785,7 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
                         isGuest: !userId, // Guest if no userId
                         modelId,
                         hasUserKey: !!userApiKey,
-                        messageLength: finalPromptContent.length,
+                        messageLength: finalPrompt.length,
                         isStreaming: true,
                         useWebSearch,
                         maximizeTokens: req.body.maximizeTokens || false
@@ -1134,7 +1184,6 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         if (useWebSearch) {
             let searchQuery = lastUserMessage.content;
 
-            // ====================== THE NEW LOGIC IS HERE ======================
             // If there's an image, get a description first to use as the search query.
             if (imageDataForAI) {
                 const visionModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
@@ -1167,7 +1216,6 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                 console.log('Performing vision-based web search with query:', searchQuery);
                 console.log('Query length:', searchQuery.length);
             }
-            // ====================================================================
 
             const activeTavily = userTavilyKey ? new tavily(userTavilyKey) : tavily;
             const searchResponse = await activeTavily.search(searchQuery, { 
@@ -1210,19 +1258,16 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         if (isGoogleModel) {
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
             
-            // Format history for Google's API
             const formattedHistory = history.map(msg => ({
                 role: msg.role === 'user' ? 'user' : 'model',
                 parts: [{ text: msg.content }]
             }));
             
-            // Add current message - use finalPrompt which contains PDF text if present
             const promptParts = [{ text: finalPrompt }];
             if (imageDataForAI && fileMimeType.startsWith('image/')) {
                 promptParts.push({ inlineData: { data: imageDataForAI, mimeType: fileMimeType } });
             }
             
-            // Use startChat to include conversation history
             const chat = model.startChat({ history: formattedHistory });
             const result = await chat.sendMessageStream(promptParts);
             
@@ -1235,35 +1280,17 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
             }
 
         } else {
-            // OpenRouter streaming logic (this part was already correct but is included for completeness)
             return new Promise(async (resolve, reject) => {
-                let apiKeyToUse;
-                const freeModels = [
-                    'google/gemini-1.5-flash-latest',
-                    'google/gemini-pro-1.5',
-                    'mistralai/mistral-7b-instruct:free', 
-                    'mistralai/devstral-small:free',
-                    'deepseek/deepseek-r1:free',
-                    'moonshotai/kimi-dev-72b:free'
-                ];
-                const isFreeModel = freeModels.includes(modelId);
+                const { apiKey: apiKeyToUse, usedServerKey } = determineApiKey(modelId, userApiKey);
+                if (usedServerKey) res.write(`data: ${JSON.stringify({ type: 'key_usage', source: 'server_default' })}\n\n`);
 
-                if (isFreeModel) {
-                    apiKeyToUse = process.env.OPENROUTER_API_KEY;
-                    if (!apiKeyToUse) return reject(new Error("The free model is not configured on the server."));
-                } else {
-                    apiKeyToUse = userApiKey;
-                }
-                if (!apiKeyToUse) return reject(new Error("An OpenRouter API key is required to use this model."));
-
-                // Prepare messages for OpenRouter API, including image if present
                 const openRouterMessageContent = [{ type: 'text', text: finalPrompt }];
                 if (imageDataForAI && fileMimeType.startsWith('image/')) {
                     openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${fileMimeType};base64,${imageDataForAI}` } });
                 }
 
                 const apiMessages = [
-                    ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
+                    ...history.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
                     { role: 'user', content: openRouterMessageContent }
                 ];
 
@@ -1271,18 +1298,12 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                     method: "POST",
                     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
                     body: JSON.stringify({ 
-                        model: modelId, 
-                        messages: apiMessages,
-                        include_reasoning: modelId === 'deepseek/deepseek-r1:free',
-                        stream: true,
+                        model: modelId, messages: apiMessages,
+                        include_reasoning: modelId === 'deepseek/deepseek-r1:free', stream: true,
                         max_tokens: calculateMaxTokens({
-                            isGuest: !userId, // Guest if no userId
-                            modelId,
-                            hasUserKey: !!userApiKey,
-                            messageLength: finalPrompt.length,
-                            isStreaming: true,
-                            useWebSearch,
-                            maximizeTokens: req.body.maximizeTokens || false
+                            isGuest: !userId, modelId, hasUserKey: !!userApiKey,
+                            messageLength: finalPrompt.length, isStreaming: true,
+                            useWebSearch, maximizeTokens: req.body.maximizeTokens || false
                         })
                     }),
                 });
@@ -1306,7 +1327,7 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                             if (data.trim() === '[DONE]') return;
                             try {
                                 const parsed = JSON.parse(data);
-                                if (parsed.choices && parsed.choices[0]) {
+                                if (parsed.choices?.[0]) {
                                     const choice = parsed.choices[0];
                                     if (choice.delta?.content) {
                                         aiResponseContent += choice.delta.content;
@@ -1326,18 +1347,12 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                     try {
                         const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
                         const [aiMessage] = await db.insert(schema.messages).values({ 
-                            chatId: currentChatId, 
-                            sender: 'ai', 
-                            content: aiResponseContent,
-                            modelId: modelId,
+                            chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId: modelId,
                             searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
                             reasoning: reasoningData || null
                         }).returning();
 
-                        res.write(`data: ${JSON.stringify({ 
-                            type: 'complete', 
-                            aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: reasoningData || null }
-                        })}\n\n`);
+                        res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: reasoningData || null }})}\n\n`);
                         res.end();
                         resolve();
                     } catch (dbError) { reject(dbError); }
@@ -1351,18 +1366,12 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         if (isGoogleModel) {
             const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
             const [aiMessage] = await db.insert(schema.messages).values({ 
-                chatId: currentChatId, 
-                sender: 'ai', 
-                content: aiResponseContent,
-                modelId: modelId,
+                chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId: modelId,
                 searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
                 reasoning: null
             }).returning();
 
-            res.write(`data: ${JSON.stringify({ 
-                type: 'complete', 
-                aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: null }
-            })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: null }})}\n\n`);
             res.end();
         }
 
@@ -1377,13 +1386,9 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
     const { userId } = getAuth(req);
     const { messageId, newContent, chatId, modelId, userApiKey, useWebSearch, userTavilyKey } = req.body;
     
-    // Check for required fields, but allow empty content if there's an image
     if (!messageId || !chatId || !modelId) {
         return res.status(400).json({ error: 'Missing required fields for regeneration.' });
     }
-    
-    // For image-only inputs, newContent might be empty or a placeholder
-    // We'll handle this in the processing logic below
 
     res.writeHead(200, {
         'Content-Type': 'text/event-stream',
@@ -1392,53 +1397,37 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
     });
 
     try {
-        // Step 1: Update the user's message and get the full updated message, including imageUrl
         const [updatedUserMessage] = await db.update(schema.messages)
             .set({
                 content: newContent,
                 editCount: sql`${schema.messages.editCount} + 1`,
                 usedWebSearch: useWebSearch || false
             })
-            .where(and(
-                eq(schema.messages.id, messageId),
-                eq(schema.messages.sender, 'user')
-            ))
-            .returning(); // This returns the entire updated row
+            .where(and(eq(schema.messages.id, messageId), eq(schema.messages.sender, 'user')))
+            .returning();
         
         if (!updatedUserMessage) {
             throw new Error("Message to edit not found or you don't have permission.");
         }
 
-        // Step 2: Delete all messages that came AFTER the user's prompt
         await db.delete(schema.messages).where(and(
             eq(schema.messages.chatId, chatId),
             gt(schema.messages.id, updatedUserMessage.id)
         ));
         
-        // Step 3: Fetch the history of messages *before* the edited message
         const historyForAI = await db.query.messages.findMany({
-            where: and(
-                eq(schema.messages.chatId, chatId), 
-                lt(schema.messages.id, updatedUserMessage.id)
-            ),
+            where: and(eq(schema.messages.chatId, chatId), lt(schema.messages.id, updatedUserMessage.id)),
             orderBy: [asc(schema.messages.id)],
         });
 
-        // Step 4: Perform web search if enabled
         let searchResults = null;
-        let finalPromptContent = newContent || ''; // Handle empty content
-        
-        // If content is empty or just a placeholder, provide a default prompt for image analysis
-        if (!finalPromptContent || finalPromptContent === '[Image uploaded]') {
-            finalPromptContent = 'Please analyze this image and provide a detailed description of what you see.';
-        }
+        let finalPromptContent = newContent || 'Please analyze this image and provide a detailed description.';
         
         if (useWebSearch) {
             const tavilyKeyToUse = userTavilyKey || process.env.TAVILY_API_KEY;
             if (!tavilyKeyToUse) throw new Error("No Tavily API key available.");
             
-            // Truncate the search query if it's too long
-            const maxQueryLength = 380; // Leave some buffer for safety
+            const maxQueryLength = 380;
             const searchQuery = finalPromptContent.length > maxQueryLength 
                 ? finalPromptContent.substring(0, maxQueryLength - 3) + '...'
                 : finalPromptContent;
@@ -1449,21 +1438,17 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
             finalPromptContent = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${finalPromptContent}"`;
         }
 
-        // Step 5: Handle the image, if it exists on the edited message
         let imageDataForAI = null;
         if (updatedUserMessage.imageUrl) {
             try {
-                // Fetch the image from the URL and convert it to base64 for the AI
                 const imageResponse = await fetch(updatedUserMessage.imageUrl);
                 const imageBuffer = await imageResponse.arrayBuffer();
                 imageDataForAI = Buffer.from(imageBuffer).toString('base64');
             } catch (e) {
                 console.error("Failed to fetch image for regeneration:", e);
-                // Continue without the image if fetching fails
             }
         }
 
-        // Step 6: Call the AI with streaming support
         let aiResponseContent = '';
         let reasoningData = '';
         const isGoogleModel = modelId.startsWith('google/');
@@ -1472,23 +1457,15 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
             const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
             
-            // ========================= THE FIX IS HERE =========================
-            // Prepare the input for the Gemini API correctly.
-            // It expects a simple string for text-only, or an array for multi-part (text+image).
+            // Correctly format the payload for Gemini API
             let streamInput;
             if (imageDataForAI && updatedUserMessage.fileType) {
-                // If there IS an image, create the parts array
-                streamInput = [
-                    { text: finalPromptContent },
-                    { inlineData: { data: imageDataForAI, mimeType: updatedUserMessage.fileType } }
-                ];
+                streamInput = [ { text: finalPromptContent }, { inlineData: { data: imageDataForAI, mimeType: updatedUserMessage.fileType } } ];
             } else {
-                // If there is NO image, just send the plain text string
                 streamInput = finalPromptContent;
             }
             
-            const result = await chat.sendMessageStream(streamInput); // Use the correctly prepared input
-            // ====================================================================
+            const result = await chat.sendMessageStream(streamInput);
 
             for await (const chunk of result.stream) {
                 const chunkText = chunk.text();
@@ -1497,37 +1474,18 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                     res.write(`data: ${JSON.stringify({ type: 'content_word', content: chunkText })}\n\n`);
                 }
             }
-
         } else {
-            // OpenRouter streaming logic (this part was already correct but is included for completeness)
             return new Promise(async (resolve, reject) => {
-                let apiKeyToUse;
-                const freeModels = [
-                    'google/gemini-1.5-flash-latest',
-                    'google/gemini-pro-1.5',
-                    'mistralai/mistral-7b-instruct:free', 
-                    'mistralai/devstral-small:free',
-                    'deepseek/deepseek-r1:free',
-                    'moonshotai/kimi-dev-72b:free'
-                ];
-                const isFreeModel = freeModels.includes(modelId);
+                const { apiKey: apiKeyToUse, usedServerKey } = determineApiKey(modelId, userApiKey);
+                if (usedServerKey) res.write(`data: ${JSON.stringify({ type: 'key_usage', source: 'server_default' })}\n\n`);
 
-                if (isFreeModel) {
-                    apiKeyToUse = process.env.OPENROUTER_API_KEY;
-                    if (!apiKeyToUse) return reject(new Error("The free model is not configured on the server."));
-                } else {
-                    apiKeyToUse = userApiKey;
-                }
-                if (!apiKeyToUse) return reject(new Error("An OpenRouter API key is required to use this model."));
-
-                // Prepare messages for OpenRouter API, including image if present
                 const openRouterMessageContent = [{ type: 'text', text: finalPromptContent }];
                 if (imageDataForAI && updatedUserMessage.fileType) {
                     openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${updatedUserMessage.fileType};base64,${imageDataForAI}` } });
                 }
 
                 const apiMessages = [
-                    ...history.map(m => ({ role: m.role === 'ai' ? 'assistant' : 'user', content: m.content })),
+                    ...historyForAI.map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content })),
                     { role: 'user', content: openRouterMessageContent }
                 ];
 
@@ -1535,25 +1493,19 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                     method: "POST",
                     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
                     body: JSON.stringify({ 
-                        model: modelId, 
-                        messages: apiMessages,
-                        include_reasoning: modelId === 'deepseek/deepseek-r1:free',
-                        stream: true,
+                        model: modelId, messages: apiMessages,
+                        include_reasoning: modelId === 'deepseek/deepseek-r1:free', stream: true,
                         max_tokens: calculateMaxTokens({
-                            isGuest: !userId, // Guest if no userId
-                            modelId,
-                            hasUserKey: !!userApiKey,
-                            messageLength: finalPrompt.length,
-                            isStreaming: true,
-                            useWebSearch,
-                            maximizeTokens: req.body.maximizeTokens || false
+                            isGuest: !userId, modelId, hasUserKey: !!userApiKey,
+                            messageLength: finalPromptContent.length, isStreaming: true,
+                            useWebSearch, maximizeTokens: req.body.maximizeTokens || false
                         })
                     }),
                 });
 
                 if (!openRouterResponse.ok) {
                     const errorData = await openRouterResponse.json();
-                    return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'An unknown error occurred'}`));
+                    return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'Unknown error'}`));
                 }
 
                 const stream = openRouterResponse.body;
@@ -1570,7 +1522,7 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                             if (data.trim() === '[DONE]') return;
                             try {
                                 const parsed = JSON.parse(data);
-                                if (parsed.choices && parsed.choices[0]) {
+                                if (parsed.choices?.[0]) {
                                     const choice = parsed.choices[0];
                                     if (choice.delta?.content) {
                                         aiResponseContent += choice.delta.content;
@@ -1594,12 +1546,10 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                         resolve();
                     } catch (dbError) { reject(dbError); }
                 });
-
                 stream.on('error', (error) => reject(error));
             });
         }
         
-        // Finalize for Google model stream
         if (isGoogleModel) {
             const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: null }).returning();
             res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: null } })}\n\n`);

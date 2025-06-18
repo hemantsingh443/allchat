@@ -5,7 +5,7 @@ import { User, Sparkles, Pencil, Check, X, Trash2, Globe, ChevronDown, GitBranch
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import BranchModelSelector from './BranchModelSelector';
+import BranchModelSelector, { CapabilityIcons } from './BranchModelSelector';
 import { allModels } from '../data/models';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
@@ -156,14 +156,6 @@ const IntegratedSearchResults = ({ results, searchQueries, onSearchSuggestionCli
     );
 };
 // ====================================================================
-
-const CapabilityIcons = ({ capabilities = {} }) => (
-    <div className="flex items-center gap-2 text-slate-400">
-        {capabilities.vision && <Eye size={14} className="text-green-400" title="Vision Enabled" />}
-        {capabilities.reasoning && <Brain size={14} className="text-purple-400" title="Advanced Reasoning" />}
-        {capabilities.code && <Code size={14} className="text-orange-400" title="Code Generation" />}
-    </div>
-);
 
 const PlainTextCopyButton = ({ textToCopy }) => {
     const [isCopied, setIsCopied] = useState(false);
@@ -376,10 +368,9 @@ const ChatMessage = React.memo(({
     return (
         <motion.div
             className={`flex items-start gap-3 w-full ${isUser ? 'justify-end' : ''}`}
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 15 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2, ease: "easeOut" }}
-            layout
+            transition={{ duration: 0.3, ease: "easeOut" }}
         >
             {!isUser && (
                 <div className="w-8 h-8 flex-shrink-0 rounded-full flex items-center justify-center bg-purple-200 dark:bg-purple-900/50">
@@ -556,8 +547,7 @@ const ChatMessage = React.memo(({
                                                                                 margin: 0,
                                                                                 padding: '1.25rem',
                                                                                 borderRadius: '0.75rem',
-                                                                                backgroundColor: currentCodeColors.backgroundColor,
-                                                                                background: currentCodeColors.backgroundColor
+                                                                                backgroundColor: currentCodeColors.backgroundColor
                                                                             }}
                                                                             {...props}
                                                                         />
@@ -609,8 +599,7 @@ const ChatMessage = React.memo(({
                                                                                         margin: 0,
                                                                                         padding: '1.25rem',
                                                                                         borderRadius: '0.75rem',
-                                                                                        backgroundColor: currentCodeColors.backgroundColor,
-                                                                                        background: currentCodeColors.backgroundColor
+                                                                                        backgroundColor: currentCodeColors.backgroundColor
                                                                                     }}
                                                                                     {...props}
                                                                                 />
@@ -682,8 +671,7 @@ const ChatMessage = React.memo(({
                                                                                     margin: 0,
                                                                                     padding: '1.25rem',
                                                                                     borderRadius: '0.75rem',
-                                                                                    backgroundColor: currentCodeColors.backgroundColor,
-                                                                                    background: currentCodeColors.backgroundColor
+                                                                                    backgroundColor: currentCodeColors.backgroundColor
                                                                                 }}
                                                                                 {...props}
                                                                             />
@@ -707,7 +695,7 @@ const ChatMessage = React.memo(({
                                         
                                         return <>{elements}</>;
                                     })()}
-                                    {isStreaming && <span className="inline-block w-2 h-4 bg-slate-800 dark:bg-white ml-1 animate-pulse"></span>}
+                                    {isStreaming && text && text.length > 0 && <span className="inline-block w-2 h-4 bg-slate-800 dark:bg-white ml-1 animate-pulse"></span>}
                                 </div>
 
                                 {hasSearchResults && (

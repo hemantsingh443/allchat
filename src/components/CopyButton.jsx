@@ -1,11 +1,13 @@
-// src/components/CopyButton.jsx
 import React, { useState } from 'react';
 import { Check, Copy } from 'lucide-react';
 
-const CopyButton = ({ textToCopy }) => {
+const CopyButton = ({ textToCopy, className = '', title = 'Copy to clipboard', iconSize = 16 }) => {
     const [isCopied, setIsCopied] = useState(false);
 
-    const handleCopy = () => {
+    const handleCopy = (e) => {
+        e.stopPropagation();
+        if (isCopied) return;
+        
         navigator.clipboard.writeText(textToCopy).then(() => {
             setIsCopied(true);
             setTimeout(() => {
@@ -19,10 +21,11 @@ const CopyButton = ({ textToCopy }) => {
     return (
         <button
             onClick={handleCopy}
-            className="absolute top-2 right-2 p-1.5 rounded-lg bg-slate-700/50 hover:bg-slate-600/50 text-gray-300 transition-colors"
-            aria-label="Copy code to clipboard"
+            className={className}
+            title={isCopied ? 'Copied!' : title}
+            aria-label={title}
         >
-            {isCopied ? <Check size={16} className="text-green-400" /> : <Copy size={16} />}
+            {isCopied ? <Check size={iconSize} className="text-green-400" /> : <Copy size={iconSize} />}
         </button>
     );
 };

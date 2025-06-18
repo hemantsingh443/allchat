@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, createContext, useContext } from 'react';
+import React, { useState, useCallback, useEffect, createContext, useContext, useMemo } from 'react';
 import Sidebar, { SidebarToggle } from './components/Sidebar';
 import MainContent from './components/MainContent';
 import { useAuth } from '@clerk/clerk-react';
@@ -26,18 +26,18 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
         };
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
-    }, []); // Empty dependency array is fine here since we're using setState
+    }, []);
 
-    const triggerSignInFlow = () => {
+    const triggerSignInFlow = useCallback(() => {
         setIsMigrationModalOpen(true);
-    };
+    }, []);
 
     const handleModalConfirmation = (shouldMigrate) => {
         setIsMigrationModalOpen(false);
         handleSignIn(shouldMigrate);
     };
 
-    const contextValue = {
+    const contextValue = useMemo(() => ({
         isGuest,
         handleSignIn: triggerSignInFlow,
         chats,
@@ -46,7 +46,7 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
         setActiveChatId,
         getToken: memoizedGetToken,
         getConfirmation,
-    };
+    }), [isGuest, triggerSignInFlow, chats, activeChatId, memoizedGetToken, getConfirmation]);
 
     const toggleSidebar = () => {
         setIsSidebarOpen(!isSidebarOpen);

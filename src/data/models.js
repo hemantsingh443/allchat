@@ -5,8 +5,8 @@ export const modelCategories = [
         name: "Google",
         logo: <Bot size={16} className="text-blue-500" />,
         models: [
-            { id: 'google/gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', capabilities: { vision: true, reasoning: true }, isFree: true },
-            { id: 'google/gemini-pro-1.5', name: 'Gemini 1.5 Pro', capabilities: { vision: true, reasoning: true }, isFree: true },
+            { id: 'google/gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash', capabilities: { vision: true, code: true }, isFree: true },
+            { id: 'google/gemini-pro-1.5', name: 'Gemini 1.5 Pro', capabilities: { vision: true, code: true }, isFree: true },
         ]
     },
     {
@@ -16,13 +16,13 @@ export const modelCategories = [
             { 
                 id: 'mistralai/mistral-7b-instruct:free', 
                 name: 'Mistral 7B Instruct', 
-                capabilities: { reasoning: true },
+                capabilities: { code: true },
                 isFree: true
             },
             { 
                 id: 'mistralai/devstral-small:free', 
                 name: 'Devstral Small', 
-                capabilities: { reasoning: true, code: true },
+                capabilities: { code: true },
                 isFree: true
             },
         ]
@@ -59,17 +59,17 @@ export const modelCategories = [
         name: "OpenAI",
         logo: <Bot size={16} className="text-green-500" />,
         models: [
-            { id: 'openai/gpt-4o', name: 'GPT-4o', capabilities: { vision: true, reasoning: true, code: true } },
-            { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo', capabilities: { reasoning: true, code: true } },
-            { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo', capabilities: { reasoning: true } },
+            { id: 'openai/gpt-4o', name: 'GPT-4o', capabilities: { vision: true, code: true } },
+            { id: 'openai/gpt-4-turbo', name: 'GPT-4 Turbo', capabilities: { code: true } },
+            { id: 'openai/gpt-3.5-turbo', name: 'GPT-3.5 Turbo', capabilities: { code: true } },
         ]
     },
     {
         name: "Anthropic",
         logo: <Bot size={16} className="text-purple-500" />,
         models: [
-            { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', capabilities: { vision: true, reasoning: true, code: true } },
-            { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet', capabilities: { vision: true, reasoning: true, code: true } },
+            { id: 'anthropic/claude-3-opus', name: 'Claude 3 Opus', capabilities: { vision: true, code: true } },
+            { id: 'anthropic/claude-3-sonnet', name: 'Claude 3 Sonnet', capabilities: { vision: true, code: true } },
         ]
     },
 ];
