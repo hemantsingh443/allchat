@@ -61,7 +61,9 @@ const ChatItem = React.memo(({
     editingTitle, 
     onTitleChange, 
     onSaveTitle, 
-    onCancelEdit 
+    onCancelEdit,
+    isMobile,
+    onToggleSidebar
 }) => {
     const [hoveredChatId, setHoveredChatId] = useState(null);
     
@@ -69,6 +71,14 @@ const ChatItem = React.memo(({
     if (!chat || !chat.id) {
         return null;
     }
+    
+    const handleChatSelect = () => {
+        onSelect(chat.id);
+        // Close sidebar on mobile
+        if (isMobile) {
+            onToggleSidebar();
+        }
+    };
     
     return (
         <motion.div
@@ -78,7 +88,7 @@ const ChatItem = React.memo(({
             exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}
         >
             <div
-                onClick={() => onSelect(chat.id)}
+                onClick={handleChatSelect}
                 onMouseEnter={() => setHoveredChatId(chat.id)}
                 onMouseLeave={() => setHoveredChatId(null)}
                 className={`relative flex items-center justify-between gap-3 p-2 rounded-lg cursor-pointer transition-colors 
@@ -293,7 +303,13 @@ const Sidebar = ({ isOpen, toggle }) => {
         }
     }, [chats, isGuest]);
 
-    const handleNewChat = () => { setActiveChatId(null); };
+    const handleNewChat = () => { 
+        setActiveChatId(null); 
+        // Close sidebar on mobile
+        if (isMobile) {
+            toggle();
+        }
+    };
 
     const handleDeleteChat = useCallback(async (chatId, e) => {
         e.stopPropagation();
@@ -621,6 +637,8 @@ const Sidebar = ({ isOpen, toggle }) => {
                                                 onTitleChange={handleTitleChange}
                                                 onSaveTitle={handleSaveTitle}
                                                 onCancelEdit={handleCancelEdit}
+                                                isMobile={isMobile}
+                                                onToggleSidebar={toggle}
                                             />
                                         </React.Fragment>
                                     );
