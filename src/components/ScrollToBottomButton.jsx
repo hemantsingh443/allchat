@@ -37,7 +37,7 @@ const ScrollToBottomButton = ({ containerRef, activeChatId }) => {
     };
 
     return (
-        <div className="absolute bottom-24 left-0 right-0 w-full flex justify-center pointer-events-none">
+        <div className="absolute bottom-24 left-0 right-0 w-full flex justify-center pointer-events-none z-50">
             <AnimatePresence>
                 {isVisible && (
                     <motion.button

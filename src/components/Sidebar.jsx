@@ -180,7 +180,20 @@ const Sidebar = ({ isOpen, toggle }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [sidebarWidth, setSidebarWidth] = useState(280);
     const [isResizing, setIsResizing] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
     const sidebarRef = useRef(null);
+    
+    // Check if device is mobile
+    useEffect(() => {
+        const checkMobile = () => {
+            setIsMobile(window.innerWidth < 768);
+        };
+        
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
     
     // Load saved sidebar width from localStorage
     useEffect(() => {
@@ -504,150 +517,171 @@ const Sidebar = ({ isOpen, toggle }) => {
     }, [processedChats, searchTerm]);
 
     return (
-        <motion.div
-            ref={sidebarRef}
-            initial={false}
-            animate={{ width: isOpen ? sidebarWidth : 0 }}
-            className="relative h-full overflow-hidden border-r border-black/10 dark:border-white/10"
-            style={{ cursor: isResizing ? 'col-resize' : 'default' }}
-        >
-            <div className="absolute inset-y-0 left-0 flex flex-col" style={{ width: sidebarWidth }}>
-                <div className="flex items-center justify-between p-4">
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={handleNewChat}
-                            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-gray-300 transition-colors"
-                        >
-                            <Plus size={16} />
-                            New Chat
-                        </button>
-                        {isGuest && (
-                            <div className="flex items-center justify-center w-12 h-6 bg-gradient-to-r from-pink-300 to-blue-300 dark:from-pink-400 dark:to-blue-400 rounded-full">
-                                <span className="text-xs font-medium text-white">Guest</span>
-                            </div>
-                        )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                        {!isGuest && <UserButton afterSignOutUrl='/' />}
-                        <button
-                            onClick={toggle}
-                            className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                        >
-                            <PanelLeftOpen size={18} className="text-slate-500 dark:text-gray-400" />
-                        </button>
-                    </div>
-                </div>
-
-                <div className="px-4 pb-2">
-                    <div className="relative">
-                        <input
-                            type="text"
-                            placeholder="Search..."
-                            value={searchTerm}
-                            onChange={(e) => setSearchTerm(e.target.value)}
-                            className="w-full pl-9 pr-3 py-1.5 text-sm rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-blue-500/50 focus:ring-0 outline-none text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400"
-                        />
-                        <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                            <Search size={16} className="text-slate-500 dark:text-gray-400" />
+        <>
+            {/* Mobile overlay */}
+            {isOpen && isMobile && (
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="fixed inset-0 bg-black/20 dark:bg-black/40 z-40 md:hidden"
+                    onClick={toggle}
+                />
+            )}
+            
+            {/* Sidebar */}
+            <motion.div
+                ref={sidebarRef}
+                initial={false}
+                animate={{ 
+                    width: isOpen ? (isMobile ? '100vw' : sidebarWidth) : 0,
+                    x: isMobile ? (isOpen ? 0 : '-100%') : 0
+                }}
+                className={`${isMobile ? 'fixed top-0 left-0 z-50 bg-gradient-to-br from-pink-50/90 via-white/80 to-purple-50/90 dark:from-blue-900/90 dark:via-slate-800/80 dark:to-indigo-900/90 backdrop-blur-xl border-r border-pink-200/30 dark:border-blue-700/60' : 'relative'} h-full overflow-hidden border-r border-black/10 dark:border-white/10`}
+                style={{ 
+                    cursor: isResizing ? 'col-resize' : 'default',
+                    maxWidth: isMobile ? '100vw' : '500px'
+                }}
+            >
+                <div className="h-full flex flex-col" style={{ width: isMobile ? '100vw' : sidebarWidth }}>
+                    <div className="flex items-center justify-between p-4">
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={handleNewChat}
+                                className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10 text-slate-700 dark:text-gray-300 transition-colors"
+                            >
+                                <Plus size={16} />
+                                New Chat
+                            </button>
+                            {isGuest && (
+                                <div className="flex items-center justify-center w-12 h-6 bg-gradient-to-r from-pink-300 to-blue-300 dark:from-pink-400 dark:to-blue-400 rounded-full">
+                                    <span className="text-xs font-medium text-white">Guest</span>
+                                </div>
+                            )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                            {!isGuest && <UserButton afterSignOutUrl='/' />}
+                            <button
+                                onClick={toggle}
+                                className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+                            >
+                                <PanelLeftOpen size={18} className="text-slate-500 dark:text-gray-400" />
+                            </button>
                         </div>
                     </div>
-                </div>
 
-                <div className="flex-1 overflow-y-auto space-y-1 px-4 pb-4 custom-scrollbar">
-                    <AnimatePresence>
-                        {(() => {
-                            let lastCategory = null;
-                            return filteredChats.map(chat => {
-                                let categorizationDate = new Date(chat.createdAt);
-                                if (chat.sourceChatId) {
-                                    const parentChat = chats.find(c => c && c.id === chat.sourceChatId);
-                                    if (parentChat) {
-                                        categorizationDate = new Date(parentChat.createdAt);
+                    <div className="px-4 pb-2">
+                        <div className="relative">
+                            <input
+                                type="text"
+                                placeholder="Search..."
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 pr-3 py-1.5 text-sm rounded-lg bg-black/5 dark:bg-white/5 border border-transparent focus:border-blue-500/50 focus:ring-0 outline-none text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400"
+                            />
+                            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
+                                <Search size={16} className="text-slate-500 dark:text-gray-400" />
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-1 px-4 pb-4 custom-scrollbar">
+                        <AnimatePresence>
+                            {(() => {
+                                let lastCategory = null;
+                                return filteredChats.map(chat => {
+                                    let categorizationDate = new Date(chat.createdAt);
+                                    if (chat.sourceChatId) {
+                                        const parentChat = chats.find(c => c && c.id === chat.sourceChatId);
+                                        if (parentChat) {
+                                            categorizationDate = new Date(parentChat.createdAt);
+                                        }
                                     }
-                                }
-                                
-                                const currentCategory = getChatTimeCategory(categorizationDate);
-                                let categoryHeader = null;
+                                    
+                                    const currentCategory = getChatTimeCategory(categorizationDate);
+                                    let categoryHeader = null;
 
-                                if (currentCategory !== lastCategory) {
-                                    categoryHeader = <CategoryHeader title={currentCategory} />;
-                                    lastCategory = currentCategory;
-                                }
+                                    if (currentCategory !== lastCategory) {
+                                        categoryHeader = <CategoryHeader title={currentCategory} />;
+                                        lastCategory = currentCategory;
+                                    }
 
-                                return (
-                                    <React.Fragment key={chat.id}>
-                                        {categoryHeader}
-                                        <ChatItem
-                                            chat={chat}
-                                            depth={chat.depth}
-                                            isActive={activeChatId === chat.id}
-                                            onSelect={setActiveChatId}
-                                            onDelete={handleDeleteChat}
-                                            onEdit={handleEditClick}
-                                            isEditing={editingChatId === chat.id}
-                                            editingTitle={editingTitle}
-                                            onTitleChange={handleTitleChange}
-                                            onSaveTitle={handleSaveTitle}
-                                            onCancelEdit={handleCancelEdit}
-                                        />
-                                    </React.Fragment>
-                                );
-                            });
-                        })()}
-                    </AnimatePresence>
-                </div>
+                                    return (
+                                        <React.Fragment key={chat.id}>
+                                            {categoryHeader}
+                                            <ChatItem
+                                                chat={chat}
+                                                depth={chat.depth}
+                                                isActive={activeChatId === chat.id}
+                                                onSelect={setActiveChatId}
+                                                onDelete={handleDeleteChat}
+                                                onEdit={handleEditClick}
+                                                isEditing={editingChatId === chat.id}
+                                                editingTitle={editingTitle}
+                                                onTitleChange={handleTitleChange}
+                                                onSaveTitle={handleSaveTitle}
+                                                onCancelEdit={handleCancelEdit}
+                                            />
+                                        </React.Fragment>
+                                    );
+                                });
+                            })()}
+                        </AnimatePresence>
+                    </div>
 
-                {isGuest && (
-                    <div className="p-4 border-t border-black/10 dark:border-white/10">
-                        <div className="text-center mb-3">
-                            <span className="text-xs text-slate-500 dark:text-gray-400">
-                                <span className="text-red-400">*</span> Sign in to save your chats
-                            </span>
-                        </div>
-                        
-                        <div className="relative group cursor-pointer" onClick={handleSignIn}>
-                            <div className="text-center">
-                                <div className="relative inline-block">
-                                    <span className="text-sm font-medium text-slate-600/80 dark:text-gray-300/80 backdrop-blur-sm bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full border border-white/30 dark:border-white/10 transition-all duration-300 group-hover:text-slate-700 dark:group-hover:text-gray-200 group-hover:bg-white/30 dark:group-hover:bg-black/30">
-                                        Sign in
-                                    </span>
-                                    <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-white/40 dark:via-white/20 to-transparent animate-pulse" />
-                                </div>
-                                <div className="mt-1 flex justify-center">
-                                    <ArrowRight size={12} className="text-slate-500/70 dark:text-gray-400/70 transition-all duration-300 group-hover:text-slate-600 dark:group-hover:text-gray-300 group-hover:translate-x-0.5" />
+                    {isGuest && (
+                        <div className="p-4 border-t border-black/10 dark:border-white/10">
+                            <div className="text-center mb-3">
+                                <span className="text-xs text-slate-500 dark:text-gray-400">
+                                    <span className="text-red-400">*</span> Sign in to save your chats
+                                </span>
+                            </div>
+                            
+                            <div className="relative group cursor-pointer" onClick={handleSignIn}>
+                                <div className="text-center">
+                                    <div className="relative inline-block">
+                                        <span className="text-sm font-medium text-slate-600/80 dark:text-gray-300/80 backdrop-blur-sm bg-white/20 dark:bg-black/20 px-3 py-1 rounded-full border border-white/30 dark:border-white/10 transition-all duration-300 group-hover:text-slate-700 dark:group-hover:text-gray-200 group-hover:bg-white/30 dark:group-hover:bg-black/30">
+                                            Sign in
+                                        </span>
+                                        <div className="absolute inset-0 rounded-full opacity-0 group-hover:opacity-100 transition-opacity duration-300 bg-gradient-to-r from-transparent via-white/40 dark:via-white/20 to-transparent animate-pulse" />
+                                    </div>
+                                    <div className="mt-1 flex justify-center">
+                                        <ArrowRight size={12} className="text-slate-500/70 dark:text-gray-400/70 transition-all duration-300 group-hover:text-slate-600 dark:group-hover:text-gray-300 group-hover:translate-x-0.5" />
+                                    </div>
                                 </div>
                             </div>
+                        </div>
+                    )}
+                </div>
+                
+                {/* Resize handle - only on desktop */}
+                {isOpen && !isMobile && (
+                    <div
+                        className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500/50 transition-colors z-10"
+                        onMouseDown={handleMouseDown}
+                    >
+                        <div className="absolute top-1/2 right-0 transform -translate-y-1/2 w-2 h-8 flex items-center justify-center">
+                            <GripVertical size={12} className="text-slate-400 dark:text-gray-500" />
                         </div>
                     </div>
                 )}
-            </div>
-            
-            {/* Resize handle */}
-            {isOpen && (
-                <div
-                    className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500/50 transition-colors z-10"
-                    onMouseDown={handleMouseDown}
-                >
-                    <div className="absolute top-1/2 right-0 transform -translate-y-1/2 w-2 h-8 flex items-center justify-center">
-                        <GripVertical size={12} className="text-slate-400 dark:text-gray-500" />
-                    </div>
-                </div>
-            )}
-        </motion.div>
+            </motion.div>
+        </>
     );
 };
 
-const SidebarToggle = ({ isOpen, toggle }) => {
-    if (isOpen) return null;
+const SidebarToggle = ({ isOpen, toggle, isMobile }) => {
+    // On mobile, always show the toggle button when sidebar is closed
+    // On desktop, only show when sidebar is closed
+    if (isOpen && !isMobile) return null;
+    
     return (
         <motion.button
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={toggle}
-            className="absolute top-4 left-3 p-2 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/5 z-10
-                       bg-white/40 dark:bg-black/40 backdrop-blur-sm
-                       border border-white/60 dark:border-white/20"
+            className={`${isMobile ? 'fixed z-30' : 'absolute z-10'} top-4 left-3 p-2 rounded-lg transition-colors hover:bg-black/5 dark:hover:bg-white/5 bg-white/40 dark:bg-black/40 backdrop-blur-sm border border-white/60 dark:border-white/20`}
         >
             <PanelLeftOpen size={20} className="text-slate-700 dark:text-gray-300" />
         </motion.button>

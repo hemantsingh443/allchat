@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getAllChats, getChatMessages, deleteChat, updateChatTitle, updateChatModel, handleChat, handleStreamingChat, regenerateResponse, regenerateResponseStreaming, deleteMessage, branchChat, handleGuestChat, handleGuestChatStreaming, migrateGuestChats } from '../controllers/chatController.js';
+import { getAllChats, getChatMessages, deleteChat, updateChatTitle, handleChat, handleStreamingChat, regenerateResponse, regenerateResponseStreaming, deleteMessage, branchChat, handleGuestChat, handleGuestChatStreaming, migrateGuestChats } from '../controllers/chatController.js';
 
 export default function(db, genAI, tavily) {
     const guestRouter = Router();
@@ -14,7 +14,6 @@ export default function(db, genAI, tavily) {
     protectedRouter.get('/chats/:chatId', getChatMessages(db));
     protectedRouter.delete('/chats/:chatId', deleteChat(db));
     protectedRouter.patch('/chats/:chatId/title', updateChatTitle(db));
-    protectedRouter.patch('/chats/:chatId/model', updateChatModel(db));
     protectedRouter.post('/chats/branch', branchChat(db));
     protectedRouter.post('/chat', handleChat(db, genAI, tavily));
     protectedRouter.post('/chat/stream', handleStreamingChat(db, genAI, tavily));

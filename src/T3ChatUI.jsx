@@ -113,7 +113,7 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
                     </AnimatePresence>
                     <Sidebar isOpen={isSidebarOpen} toggle={toggleSidebar} />
                     <MainContent />
-                    <SidebarToggle isOpen={isSidebarOpen} toggle={toggleSidebar} />
+                    <SidebarToggle isOpen={isSidebarOpen} toggle={toggleSidebar} isMobile={!isDesktop} />
                 </main>
             </div>
         </AppContext.Provider>
