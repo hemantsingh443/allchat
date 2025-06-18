@@ -205,7 +205,7 @@ const Sidebar = ({ isOpen, toggle }) => {
         if (!isResizing) return;
         
         const newWidth = e.clientX;
-        const minWidth = 200;
+        const minWidth = 240; // Adjusted min width
         const maxWidth = 500;
         
         if (newWidth >= minWidth && newWidth <= maxWidth) {

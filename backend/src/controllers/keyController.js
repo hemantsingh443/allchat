@@ -1,3 +1,5 @@
+const SITE_URL = process.env.SITE_URL || 'http://localhost:3000';
+
 export const verifyOpenRouterKey = async (req, res) => {
     const { apiKey } = req.body;
     if (!apiKey) {
@@ -10,7 +12,7 @@ export const verifyOpenRouterKey = async (req, res) => {
             method: "GET",
             headers: { 
                 "Authorization": `Bearer ${apiKey}`,
-                "HTTP-Referer": "http://localhost:3000", // Required for free tier
+                "HTTP-Referer": SITE_URL, // Required for free tier
                 "X-Title": "T3Chat" // Optional but helpful for OpenRouter
             },
         });

@@ -46,11 +46,18 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                 <Transition.Child as={React.Fragment} enter="ease-out duration-150" enterFrom="opacity-0" enterTo="opacity-100" leave="ease-in duration-150" leaveFrom="opacity-100" leaveTo="opacity-0">
                     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
                 </Transition.Child>
-                <div className="fixed inset-0 overflow-hidden">
-                    <div className="absolute bottom-20 right-4 sm:right-6 md:right-auto md:left-1/2 md:-translate-x-1/2">
-                        <Transition.Child as={React.Fragment} enter="ease-out duration-200" enterFrom="opacity-0 scale-95" enterTo="opacity-100 scale-100" leave="ease-in duration-150" leaveFrom="opacity-100 scale-100" leaveTo="opacity-0 scale-95">
-                            <Dialog.Panel as={motion.div} className="w-[340px] max-w-sm transform text-left align-middle transition-all">
-                                <GlassPanel className="p-2">
+                <div className="fixed inset-0 overflow-y-auto">
+                    <div className="flex min-h-full items-end sm:items-center justify-center p-0 sm:p-4 text-center">
+                        <Transition.Child 
+                            as={React.Fragment} 
+                            enter="ease-out duration-200" 
+                            enterFrom="opacity-0 translate-y-full sm:translate-y-0 sm:scale-95" 
+                            enterTo="opacity-100 translate-y-0 sm:scale-100" 
+                            leave="ease-in duration-150" 
+                            leaveFrom="opacity-100 translate-y-0 sm:scale-100" 
+                            leaveTo="opacity-0 translate-y-full sm:translate-y-0 sm:scale-95">
+                            <Dialog.Panel as={motion.div} className="w-full max-w-sm transform text-left align-middle transition-all">
+                                <GlassPanel className="p-2 rounded-t-lg sm:rounded-lg">
                                     <div className="relative mb-2">
                                         <input
                                             type="text"
@@ -91,7 +98,7 @@ const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, 
                                             )
                                         })}
                                     </div>
-                    </GlassPanel>
+                                </GlassPanel>
                             </Dialog.Panel>
                         </Transition.Child>
                     </div>
@@ -139,16 +146,16 @@ const WelcomeScreen = ({ onSuggestionClick, user }) => {
     ];
 
     return (
-        <div className="flex flex-col justify-center items-center h-full text-center py-10 w-full max-w-3xl mx-auto">
-            <h2 className="text-4xl md:text-5xl font-bold mb-8 glass-text">
+        <div className="flex flex-col justify-center items-center h-full text-center py-10 w-full max-w-3xl mx-auto px-4">
+            <h2 className="text-3xl md:text-5xl font-bold mb-8 glass-text">
                 {greeting}
             </h2>
 
-            <div className="flex items-center gap-3 mb-10">
+            <div className="flex items-center gap-2 sm:gap-3 mb-10 flex-wrap justify-center">
                 {actionButtons.map((btn, index) => (
                     <motion.button 
                         key={index}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-br ${btn.gradient} shadow-sm border border-white/10 dark:border-white/5 text-slate-700 dark:text-gray-100 backdrop-blur-md transition-colors duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-pink-300/40 dark:focus:ring-pink-800/40`}
+                        className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg bg-gradient-to-br ${btn.gradient} shadow-sm border border-white/10 dark:border-white/5 text-slate-700 dark:text-gray-100 backdrop-blur-md transition-colors duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-pink-300/40 dark:focus:ring-pink-800/40`}
                         whileHover={{ scale: 1.07, y: -2 }}
                         whileTap={{ scale: 0.97 }}
                     >
@@ -1134,8 +1141,8 @@ const MainContent = () => {
                 openSettings={() => setIsSettingsOpen(true)}
             />
             <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30 relative">
-            <header className="flex justify-end items-center p-4">
-                <div className="flex items-center gap-4">
+            <header className="flex justify-end items-center p-2 sm:p-4">
+                <div className="flex items-center gap-2 sm:gap-4">
                         <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
                             <GlassPanel className="p-2 rounded-full cursor-pointer">
                                 <Settings className="text-slate-500 dark:text-gray-400" size={20} />
@@ -1203,7 +1210,7 @@ const MainContent = () => {
                         )}
                 </div>
             </div>
-            <div className="relative z-10 px-4 pb-4 md:px-6 md:pb-6 pt-4">
+            <div className="relative z-10 px-2 pb-3 md:px-6 md:pb-6 pt-4">
                     <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative w-full max-w-3xl mx-auto">
                         { (filePreviewUrl || (selectedFile && selectedFile.mimeType === 'application/pdf')) && ( 
                             <AttachmentPreview 
@@ -1213,17 +1220,27 @@ const MainContent = () => {
                                 onView={() => filePreviewUrl && setViewingImageUrl(filePreviewUrl)} 
                             />
                         )}
-                    <GlassPanel className="flex items-center gap-2 p-1.5">
-                        <input
-                                type="text"
-                                value={currentMessage}
-                                onChange={(e) => setCurrentMessage(e.target.value)}
-                                onKeyDown={handleKeyDown}
-                            placeholder={isGuest ? `Guest Mode (${GUEST_TRIAL_LIMIT - guestTrials} trials left)` : "Type your message here..."}
-                            className="flex-1 bg-transparent px-3 py-2 text-md text-slate-700 placeholder:text-slate-500 dark:text-gray-300 dark:placeholder:text-gray-500 focus:outline-none"
-                            disabled={isLoading || isStreaming} 
-                        />
-                        <div className="flex items-center gap-1">
+                    <GlassPanel className="flex flex-col sm:flex-row sm:items-center gap-2 p-1.5">
+                        <div className="flex items-center gap-2 w-full">
+                            <input
+                                    type="text"
+                                    value={currentMessage}
+                                    onChange={(e) => setCurrentMessage(e.target.value)}
+                                    onKeyDown={handleKeyDown}
+                                placeholder={isGuest ? `Guest Mode (${GUEST_TRIAL_LIMIT - guestTrials} left)` : "Type your message here..."}
+                                className="flex-1 bg-transparent px-3 py-2 text-md text-slate-700 placeholder:text-slate-500 dark:text-gray-300 dark:placeholder:text-gray-500 focus:outline-none"
+                                disabled={isLoading || isStreaming} 
+                            />
+                            <button
+                                id="send-button"
+                                onClick={handleSendMessage}
+                                disabled={isLoading || isStreaming || (!currentMessage.trim() && !selectedFile)}
+                                className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedFile) && !(isLoading || isStreaming) ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}
+                            >
+                                <ArrowUp size={20} />
+                            </button>
+                        </div>
+                        <div className="flex items-center gap-1 w-full sm:w-auto justify-start sm:justify-end border-t sm:border-t-0 border-black/5 dark:border-white/5 pt-2 sm:pt-0">
                             <CustomTooltip 
                                 text={isGuest ? "Sign in to access other AI models" : "Select Model"}
                                 isGuest={isGuest}
@@ -1239,7 +1256,9 @@ const MainContent = () => {
                                         )}
                                     `}
                                 >
-                                    {(allModels.find(m => m.id === currentChatModelId))?.name || 'Select Model'}
+                                    <span className="truncate max-w-[100px] sm:max-w-none">
+                                        {(allModels.find(m => m.id === currentChatModelId))?.name || 'Select Model'}
+                                    </span>
                                     <ChevronDown size={14} />
                                 </button>
                             </CustomTooltip>
@@ -1283,14 +1302,6 @@ const MainContent = () => {
                                 </button>
                             </CustomTooltip>
                         </div>
-                            <button
-                                id="send-button"
-                                onClick={handleSendMessage}
-                                disabled={isLoading || isStreaming || (!currentMessage.trim() && !selectedFile)}
-                                className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedFile) && !(isLoading || isStreaming) ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}
-                            >
-                            <ArrowUp size={20} />
-                        </button>
                     </GlassPanel>
                 </motion.div>
             </div>

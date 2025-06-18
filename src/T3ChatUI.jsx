@@ -4,12 +4,40 @@ import MainContent from './components/MainContent';
 import { useAuth } from '@clerk/clerk-react';
 import { useNotification } from './contexts/NotificationContext';
 import MigrationModal from './components/MigrationModal';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const AppContext = createContext();
 export const useAppContext = () => useContext(AppContext);
 
+// A simple hook to check for a media query
+const useMediaQuery = (query) => {
+    const [matches, setMatches] = useState(() => {
+        if (typeof window !== 'undefined') {
+            return window.matchMedia(query).matches;
+        }
+        return false;
+    });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+
+        const mediaQueryList = window.matchMedia(query);
+        const listener = (event) => setMatches(event.matches);
+        
+        // Add listener
+        mediaQueryList.addEventListener('change', listener);
+        
+        // Cleanup
+        return () => mediaQueryList.removeEventListener('change', listener);
+    }, [query]);
+
+    return matches;
+};
+
+
 const T3ChatUI = ({ isGuest, handleSignIn }) => {
-    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+    const isDesktop = useMediaQuery('(min-width: 768px)');
+    const [isSidebarOpen, setIsSidebarOpen] = useState(isDesktop);
     const [chats, setChats] = useState([]);
     const [activeChatId, setActiveChatId] = useState(null);
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -18,6 +46,11 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
     const { getToken } = useAuth();
     const memoizedGetToken = useCallback(getToken, [getToken]);
     const { getConfirmation } = useNotification();
+
+    // Set sidebar state based on viewport size
+    useEffect(() => {
+        setIsSidebarOpen(isDesktop);
+    }, [isDesktop]);
 
     // Mouse position effect for aurora animation
     useEffect(() => {
@@ -67,6 +100,17 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
                 }}
             >
                 <main className="relative z-10 flex h-full">
+                    <AnimatePresence>
+                        {!isDesktop && isSidebarOpen && (
+                            <motion.div
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                onClick={toggleSidebar}
+                                className="fixed inset-0 bg-black/40 z-30"
+                            />
+                        )}
+                    </AnimatePresence>
                     <Sidebar isOpen={isSidebarOpen} toggle={toggleSidebar} />
                     <MainContent />
                     <SidebarToggle isOpen={isSidebarOpen} toggle={toggleSidebar} />
