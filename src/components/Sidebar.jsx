@@ -338,9 +338,8 @@ const Sidebar = ({ isOpen, toggle }) => {
 
             // Success - no action is needed as the UI is already updated
             console.log('Chat deleted successfully');
-            addNotification('Chat deleted successfully!', 'success');
             
-        } catch (error) { 
+        } catch (error) {
             // Rollback on failure
             setChats(previousChats);
             if (activeChatId === null) setActiveChatId(chatId);
@@ -423,7 +422,6 @@ const Sidebar = ({ isOpen, toggle }) => {
             // Success - no need to rollback since the update was successful
             const updatedChat = await res.json();
             console.log('Title updated successfully:', updatedChat);
-            addNotification('Chat title updated successfully!', 'success');
             
         } catch (error) {
             // Rollback on failure

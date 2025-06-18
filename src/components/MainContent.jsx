@@ -1042,7 +1042,6 @@ const MainContent = () => {
 
             setChats(prev => [newChat, ...prev]);
             setActiveChatId(newChat.id); 
-            addNotification(`Branched to a new guest chat.`, "success");
             return;
         }
 
@@ -1061,7 +1060,6 @@ const MainContent = () => {
             setChats(prev => [newChatData, ...prev]);
             setActiveChatId(newChatData.id);
 
-            addNotification(`Branched to new chat.`, "success");
         } catch (error) {
             addNotification(error.message, 'error');
         } finally {
@@ -1099,6 +1097,11 @@ const MainContent = () => {
                         body: JSON.stringify({ newModelId })
                     });
                     if (!res.ok) throw new Error('Failed to save model change.');
+
+                    // Success - no need to rollback
+                    const updatedChat = await res.json();
+                    console.log('Model updated successfully:', updatedChat);
+                    
                 } catch (error) {
                     console.error("Failed to persist model change:", error);
                     addNotification('Could not save model change.', 'error');

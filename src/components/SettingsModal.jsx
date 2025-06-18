@@ -110,7 +110,6 @@ const SettingsModal = ({ isOpen, onClose }) => {
             setTavilyKey('');
             setTavilyStatus({ state: 'idle' });
         }
-        addNotification(`${keyType.charAt(0).toUpperCase() + keyType.slice(1)} key removed.`, 'info');
     };
 
     const formatTokenCount = (count) => {
