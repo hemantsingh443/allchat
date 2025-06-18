@@ -1,6 +1,6 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil, Check, X } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil, Check, X, GripVertical } from 'lucide-react';
 import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
 import { allModels } from '../data/models';
@@ -81,19 +81,42 @@ const ChatItem = React.memo(({
                     )}
 
                     {isEditing ? (
-                        <input
-                            type="text"
-                            value={editingTitle}
-                            onChange={onTitleChange}
-                            onBlur={(e) => onSaveTitle(e, chat.id)}
-                            onKeyDown={(e) => {
-                                if (e.key === 'Enter') onSaveTitle(e, chat.id);
-                                if (e.key === 'Escape') onCancelEdit();
-                            }}
-                            className="w-full bg-white/20 dark:bg-black/20 backdrop-blur-sm text-sm font-medium p-1.5 rounded-md outline-none border border-white/30 dark:border-white/10 text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all duration-200"
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                        />
+                        <div className="flex items-center gap-1 w-full flex-nowrap overflow-visible">
+                            <input
+                                type="text"
+                                value={editingTitle}
+                                onChange={onTitleChange}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') onSaveTitle(e, chat.id);
+                                    if (e.key === 'Escape') onCancelEdit();
+                                }}
+                                className="flex-1 min-w-0 max-w-[161px] bg-white/20 dark:bg-black/20 backdrop-blur-sm text-sm font-medium p-1.5 rounded-md outline-none border border-white/30 dark:border-white/10 text-slate-700 dark:text-gray-300 placeholder:text-slate-500 dark:placeholder:text-gray-400 focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all duration-200"
+                                autoFocus
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                            <div className="flex items-center gap-0.5 shrink-0">
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onSaveTitle(e, chat.id);
+                                    }}
+                                    className="p-1 rounded hover:bg-blue-500/20 text-blue-500 transition-colors"
+                                    title="Save changes"
+                                >
+                                    <Check size={14} />
+                                </button>
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onCancelEdit();
+                                    }}
+                                    className="p-1 rounded hover:bg-red-500/20 text-red-500 transition-colors"
+                                    title="Cancel"
+                                >
+                                    <X size={14} />
+                                </button>
+                            </div>
+                        </div>
                     ) : (
                         <div className="flex flex-col overflow-hidden">
                             <span className="truncate text-sm font-medium text-slate-700 dark:text-gray-300">
@@ -138,7 +161,57 @@ const Sidebar = ({ isOpen, toggle }) => {
     const [editingChatId, setEditingChatId] = useState(null);
     const [editingTitle, setEditingTitle] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
+    const [sidebarWidth, setSidebarWidth] = useState(280);
+    const [isResizing, setIsResizing] = useState(false);
+    const sidebarRef = useRef(null);
     
+    // Load saved sidebar width from localStorage
+    useEffect(() => {
+        const savedWidth = localStorage.getItem('allchat-sidebar-width');
+        if (savedWidth) {
+            setSidebarWidth(parseInt(savedWidth, 10));
+        }
+    }, []);
+
+    // Save sidebar width to localStorage when it changes
+    useEffect(() => {
+        localStorage.setItem('allchat-sidebar-width', sidebarWidth.toString());
+    }, [sidebarWidth]);
+
+    // Handle resize functionality
+    const handleMouseDown = useCallback((e) => {
+        e.preventDefault();
+        setIsResizing(true);
+    }, []);
+
+    const handleMouseMove = useCallback((e) => {
+        if (!isResizing) return;
+        
+        const newWidth = e.clientX;
+        const minWidth = 200;
+        const maxWidth = 500;
+        
+        if (newWidth >= minWidth && newWidth <= maxWidth) {
+            setSidebarWidth(newWidth);
+        }
+    }, [isResizing]);
+
+    const handleMouseUp = useCallback(() => {
+        setIsResizing(false);
+    }, []);
+
+    useEffect(() => {
+        if (isResizing) {
+            document.addEventListener('mousemove', handleMouseMove);
+            document.addEventListener('mouseup', handleMouseUp);
+            
+            return () => {
+                document.removeEventListener('mousemove', handleMouseMove);
+                document.removeEventListener('mouseup', handleMouseUp);
+            };
+        }
+    }, [isResizing, handleMouseMove, handleMouseUp]);
+
     useEffect(() => {
         const fetchChats = async () => {
             try {
@@ -355,11 +428,13 @@ const Sidebar = ({ isOpen, toggle }) => {
 
     return (
         <motion.div
+            ref={sidebarRef}
             initial={false}
-            animate={{ width: isOpen ? 280 : 0 }}
+            animate={{ width: isOpen ? sidebarWidth : 0 }}
             className="relative h-full overflow-hidden border-r border-black/10 dark:border-white/10"
+            style={{ cursor: isResizing ? 'col-resize' : 'default' }}
         >
-            <div className="absolute inset-y-0 left-0 w-[280px] flex flex-col">
+            <div className="absolute inset-y-0 left-0 flex flex-col" style={{ width: sidebarWidth }}>
                 <div className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-2">
                         <button
@@ -469,6 +544,18 @@ const Sidebar = ({ isOpen, toggle }) => {
                     </div>
                 )}
             </div>
+            
+            {/* Resize handle */}
+            {isOpen && (
+                <div
+                    className="absolute top-0 right-0 w-1 h-full cursor-col-resize hover:bg-blue-500/50 transition-colors z-10"
+                    onMouseDown={handleMouseDown}
+                >
+                    <div className="absolute top-1/2 right-0 transform -translate-y-1/2 w-2 h-8 flex items-center justify-center">
+                        <GripVertical size={12} className="text-slate-400 dark:text-gray-500" />
+                    </div>
+                </div>
+            )}
         </motion.div>
     );
 };
