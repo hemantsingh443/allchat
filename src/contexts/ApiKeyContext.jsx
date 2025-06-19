@@ -6,7 +6,7 @@ export const useApiKeys = () => useContext(ApiKeyContext);
 
 export const ApiKeyProvider = ({ children }) => {
     
-    const [userKeys, setUserKeys] = useState({ openrouter: '', tavily: '' });
+    const [userKeys, setUserKeys] = useState({ openrouter: '', tavily: '', google: '' });
     const [maximizeTokens, setMaximizeTokens] = useState(false);
 
     useEffect(() => {

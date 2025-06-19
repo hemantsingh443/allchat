@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback, Fragment } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Settings, Sun, Moon, Code, Eye, Brain, Filter, X,
     BookOpen, Globe, Paperclip, ArrowUp, ChevronDown, Trash2, Info,
-    LoaderCircle, CheckCircle, XCircle, Lightbulb, Maximize2, FileText, Sparkles, Search,
-    FlaskConical, Rocket, BrainCircuit, HelpCircle
+    LoaderCircle, CheckCircle, XCircle, Lightbulb, Maximize2, FileText, Sparkles, Search, Gem,
+    FlaskConical, Rocket, BrainCircuit, HelpCircle, ArrowLeft
 } from 'lucide-react';
 import { useAppContext } from '../T3ChatUI';
 import { useAuth } from '@clerk/clerk-react';
@@ -15,171 +15,126 @@ import { useApiKeys } from '../contexts/ApiKeyContext';
 import { allModels, modelCategories } from '../data/models';
 import { useNotification } from '../contexts/NotificationContext';
 import ScrollToBottomButton from './ScrollToBottomButton';
-import SettingsModal from './SettingsModal';
-import { CapabilityIcons } from './BranchModelSelector';
+import HierarchicalModelSelector from './HierarchicalModelSelector';
+import { useNavigate } from 'react-router-dom';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 
 const GUEST_TRIAL_LIMIT = 8;
 const GUEST_TRIAL_COUNT_KEY = 'allchat-guest-trials';
 
-
-const ModelSelectorModal = ({ isOpen, onClose, selectedModel, setSelectedModel, openSettings }) => {
-    const [searchTerm, setSearchTerm] = useState('');
-    const { userKeys } = useApiKeys();
-    const { addNotification } = useNotification();
-
-    const handleSelectModel = (model) => {
-        if (model.id.startsWith('google/') || userKeys.openrouter || model.isFree) {
-            setSelectedModel(model.id);
-            onClose();
-        } else {
-            addNotification('OpenRouter key required for this model.', 'warning');
-            onClose();
-            setTimeout(() => openSettings(), 150);
-        }
-    };
-
+const TooltipWrapper = ({ children, tooltipText, isLocked }) => {
+    const [showTooltip, setShowTooltip] = useState(false);
     return (
-        <Transition appear show={isOpen} as={React.Fragment}>
-            <Dialog as="div" className="relative z-50" onClose={onClose}>
-                <Transition.Child as={React.Fragment} enter="ease-out duration-150" enterFrom="opacity-0" enterTo="opacity-100" leave="ease-in duration-150" leaveFrom="opacity-100" leaveTo="opacity-0">
-                    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm" />
-                </Transition.Child>
-                <div className="fixed inset-0 overflow-y-auto">
-                    <div className="flex min-h-full items-end sm:items-center justify-center p-0 sm:p-4 text-center">
-                        <Transition.Child 
-                            as={React.Fragment} 
-                            enter="ease-out duration-200" 
-                            enterFrom="opacity-0 translate-y-full sm:translate-y-0 sm:scale-95" 
-                            enterTo="opacity-100 translate-y-0 sm:scale-100" 
-                            leave="ease-in duration-150" 
-                            leaveFrom="opacity-100 translate-y-0 sm:scale-100" 
-                            leaveTo="opacity-0 translate-y-full sm:translate-y-0 sm:scale-95">
-                            <Dialog.Panel as={motion.div} className="w-full max-w-sm transform text-left align-middle transition-all">
-                                <GlassPanel className="p-2 rounded-t-lg sm:rounded-lg">
-                                    <div className="relative mb-2">
-                                        <input
-                                            type="text"
-                                            placeholder="Filter models..."
-                                            value={searchTerm}
-                                            onChange={(e) => setSearchTerm(e.target.value)}
-                                            className="w-full pl-4 pr-8 py-2 text-sm rounded-lg bg-white/40 dark:bg-black/20 border border-black/10 dark:border-white/10 text-slate-800 dark:text-gray-200 placeholder:text-slate-600 dark:placeholder:text-gray-400 focus:ring-1 focus:ring-blue-500 focus:border-blue-500"
-                                        />
-                                        <Filter size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500" />
+        <div 
+            className="relative inline-block"
+            onMouseEnter={() => setShowTooltip(true)}
+            onMouseLeave={() => setShowTooltip(false)}
+        >
+            {children}
+            {showTooltip && (
+                <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                    <GlassPanel className={`px-2 py-1 text-xs whitespace-nowrap ${isLocked ? 'bg-red-500/20' : ''}`}> 
+                        <span className={`${isLocked ? 'text-red-400' : 'text-slate-600 dark:text-gray-300'}`}>{tooltipText}</span>
+                    </GlassPanel>
                                     </div>
-                                    <div className="max-h-72 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
-                                        {modelCategories.map((category) => {
-                                            const lowerSearch = searchTerm.toLowerCase();
-                                            const filteredModels = category.models.filter(m => m.name.toLowerCase().includes(lowerSearch));
-                                            if (filteredModels.length === 0) return null;
-
-                                            return (
-                                                <div key={category.name}>
-                                                    <h3 className="px-2 py-1 text-xs font-semibold text-slate-400 dark:text-gray-500 uppercase flex items-center gap-2">{category.logo} {category.name}</h3>
-                                                    {filteredModels.map((model) => (
-                                                        <button key={model.id} onClick={() => handleSelectModel(model)}
-                                                            className={`group flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors duration-150
-                                                                ${selectedModel === model.id ? 'bg-blue-600 text-white' : 'text-slate-300 dark:text-gray-200 hover:bg-white/10'}`
-                                                            }>
-                                                            <div className="flex items-center gap-2.5">
-                                                                <span className="font-medium">{model.name}</span>
-                                                                {model.isFree && (
-                                                                    <span className="text-xs font-semibold bg-green-500/20 text-green-300 px-1.5 py-0.5 rounded-full">
-                                                                        Free Tier
-                                                                    </span>
-                                                                )}
-                                                                <Info size={14} className="text-slate-500" />
+            )}
                                                             </div>
-                                                            <CapabilityIcons capabilities={model.capabilities} size={15} />
-                                                        </button>
-                                                    ))}
-                                                </div>
-                                            )
-                                        })}
-                                    </div>
-                                </GlassPanel>
-                            </Dialog.Panel>
-                        </Transition.Child>
-                    </div>
-                </div>
-            </Dialog>
-            </Transition>
     );
 };
 
 const WelcomeScreen = ({ onSuggestionClick, user }) => {
     const greeting = user?.firstName ? `How can I help you, ${user.firstName}?` : "How can I help you?";
 
-    const actionButtons = [
-        { icon: <Sparkles size={16} />, label: "Create", gradient: "from-pink-100 to-pink-200 dark:from-pink-600 dark:to-pink-700" },
-        { icon: <Search size={16} />, label: "Explore", gradient: "from-blue-100 to-blue-200 dark:from-blue-600 dark:to-blue-700" },
-        { icon: <Code size={16} />, label: "Code", gradient: "from-purple-100 to-purple-200 dark:from-purple-600 dark:to-purple-700" },
-        { icon: <BookOpen size={16} />, label: "Learn", gradient: "from-green-100 to-green-200 dark:from-green-600 dark:to-green-700" },
+    const suggestionData = [
+        { 
+            id: 'create',
+            icon: <Sparkles size={16} />, label: "Create", color: "text-pink-600 dark:text-pink-400", bgColor: "bg-pink-100 dark:bg-pink-900/50",
+            suggestions: [
+                { prompt: "Write a short story about a robot learning to paint", icon: <Sparkles size={18} className="text-blue-500" /> },
+                { prompt: "Draft a professional email to a potential client", icon: <FileText size={18} className="text-green-500" /> },
+                { prompt: "Create a catchy slogan for a new coffee brand", icon: <Lightbulb size={18} className="text-yellow-500" /> },
+                { prompt: "Write a python script to organize files by extension", icon: <Code size={18} className="text-red-500" /> },
+            ]
+        },
+        { 
+            id: 'explore',
+            icon: <Search size={16} />, label: "Explore", color: "text-blue-600 dark:text-blue-400", bgColor: "bg-blue-100 dark:bg-blue-900/50",
+            suggestions: [
+                { prompt: "Are black holes real? And if so, what would happen if I fell into one?", icon: <Rocket size={18} className="text-orange-500" /> },
+                { prompt: "What are some recent discoveries in marine biology?", icon: <FlaskConical size={18} className="text-cyan-500" /> },
+                { prompt: "Summarize the plot of 'Dune' by Frank Herbert", icon: <BookOpen size={18} className="text-amber-600" /> },
+                { prompt: "Explore the history of ancient Rome", icon: <HelpCircle size={18} className="text-indigo-500" /> },
+            ]
+        },
+        { 
+            id: 'code',
+            icon: <Code size={16} />, label: "Code", color: "text-purple-600 dark:text-purple-400", bgColor: "bg-purple-100 dark:bg-purple-900/50",
+            suggestions: [
+                { prompt: "What are the best practices for learning a new programming language?", icon: <Code size={18} className="text-red-500" /> },
+                { prompt: "Explain how to use the 'map' function in JavaScript with an example", icon: <BrainCircuit size={18} className="text-blue-500" /> },
+                { prompt: "Write a simple 'Hello, World!' program in Rust", icon: <FileText size={18} className="text-green-500" /> },
+                { prompt: "How can I set up a basic Express.js server?", icon: <HelpCircle size={18} className="text-indigo-500" /> },
+            ]
+        },
+        { 
+            id: 'learn',
+            icon: <BookOpen size={16} />, label: "Learn", color: "text-green-600 dark:text-green-400", bgColor: "bg-green-100 dark:bg-green-900/50",
+            suggestions: [
+                { prompt: "Explain how AI works as if I were five years old", icon: <BrainCircuit size={18} className="text-purple-500" /> },
+                { prompt: "Give me a fun science experiment I can do at home with my kids", icon: <FlaskConical size={18} className="text-green-500" /> },
+                { prompt: "How can I improve my productivity and time management?", icon: <Brain size={18} className="text-blue-500" /> },
+                { prompt: "What was the significance of the Silk Road?", icon: <HelpCircle size={18} className="text-indigo-500" /> },
+            ]
+        },
     ];
-
-    const suggestionPrompts = [
-        { 
-            prompt: "Explain how AI works as if I were five years old", 
-            icon: <BrainCircuit size={18} className="text-purple-500" /> 
-        },
-        { 
-            prompt: "Are black holes real? And if so, what would happen if I fell into one?", 
-            icon: <Rocket size={18} className="text-orange-500" /> 
-        },
-        { 
-            prompt: "Give me a fun science experiment I can do at home with my kids", 
-            icon: <FlaskConical size={18} className="text-green-500" /> 
-        },
-        { 
-            prompt: "Write a short story about a robot learning to paint", 
-            icon: <Sparkles size={18} className="text-blue-500" /> 
-        },
-        { 
-            prompt: "What are the best practices for learning a new programming language?", 
-            icon: <Code size={18} className="text-red-500" /> 
-        },
-        { 
-            prompt: "How can I improve my productivity and time management?", 
-            icon: <Brain size={18} className="text-green-500" /> 
-        },
-    ];
+    
+    const [activeCategory, setActiveCategory] = useState(suggestionData[0]);
 
     return (
         <div className="flex flex-col justify-center items-center h-full text-center py-10 w-full max-w-3xl mx-auto px-4">
-            <h2 className="text-3xl md:text-5xl font-bold mb-8 glass-text">
+            <h2 className="text-4xl md:text-5xl font-bold mb-8 glass-text">
                 {greeting}
             </h2>
 
             <div className="flex items-center gap-2 sm:gap-3 mb-10 flex-wrap justify-center">
-                {actionButtons.map((btn, index) => (
+                {suggestionData.map((category) => (
                     <motion.button 
-                        key={index}
-                        className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg bg-gradient-to-br ${btn.gradient} shadow-sm border border-white/10 dark:border-white/5 text-slate-700 dark:text-gray-100 backdrop-blur-md transition-colors duration-200 hover:scale-105 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-pink-300/40 dark:focus:ring-pink-800/40`}
+                        key={category.id}
+                        onClick={() => setActiveCategory(category)}
+                        className={`flex items-center gap-2 px-3 sm:px-4 py-2 rounded-lg shadow-sm border backdrop-blur-md transition-all duration-200 focus:outline-none focus:ring-2 ${activeCategory.id === category.id ? `${category.color} ${category.bgColor} border-current/30 ring-current/30` : 'bg-slate-100/50 dark:bg-slate-800/50 border-slate-200/50 dark:border-slate-700/50 text-slate-700 dark:text-gray-300 hover:bg-slate-200/50 dark:hover:bg-slate-700/50'}`}
                         whileHover={{ scale: 1.07, y: -2 }}
                         whileTap={{ scale: 0.97 }}
                     >
-                        {btn.icon}
-                        <span className="text-sm font-medium">{btn.label}</span>
+                        {category.icon}
+                        <span className="text-sm font-medium">{category.label}</span>
                     </motion.button>
                 ))}
             </div>
 
-            <div className="w-full text-left space-y-2">
-                {suggestionPrompts.map((suggestion, index) => (
+            <AnimatePresence mode="wait">
+                <motion.div
+                    key={activeCategory.id}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0, transition: { staggerChildren: 0.05 } }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="w-full text-left space-y-2"
+                >
+                    {activeCategory.suggestions.map((suggestion, index) => (
                     <motion.button
                         key={index}
                         onClick={() => onSuggestionClick(suggestion.prompt)}
                         className="flex items-center gap-4 w-full text-left text-slate-600 dark:text-gray-400 p-3 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0, transition: { delay: 0.2 + index * 0.05 } }}
+                            initial={{ opacity: 0, x: -10 }}
+                            animate={{ opacity: 1, x: 0 }}
                         whileHover={{ x: 5 }}
                     >
                         {suggestion.icon}
                         <span>{suggestion.prompt}</span>
                     </motion.button>
                 ))}
-            </div>
+                </motion.div>
+            </AnimatePresence>
         </div>
     );
 };
@@ -339,6 +294,7 @@ const MainContent = () => {
     const { userKeys, maximizeTokens } = useApiKeys();
     const { addNotification } = useNotification();
     const { user } = useAuth();
+    const navigate = useNavigate();
 
     const [messages, setMessages] = useState([]);
     const [currentMessage, setCurrentMessage] = useState('');
@@ -424,7 +380,7 @@ const MainContent = () => {
             return newChatModelId; // For new chats
         }
         // For existing chats, use its modelId, or a safe default if it's missing.
-        return activeChat?.modelId || 'google/gemini-1.5-flash-latest';
+        return activeChat?.modelId || 'openai/gpt-4o-mini';
     }, [activeChatId, activeChat, newChatModelId]);
     
     const currentModelDetails = allModels.find(m => m.id === currentChatModelId);
@@ -914,7 +870,10 @@ const MainContent = () => {
     
 
     const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
-    const toggleTheme = () => document.documentElement.classList.toggle('dark');
+    const toggleTheme = () => {
+        const isDark = document.documentElement.classList.toggle('dark');
+        localStorage.setItem('theme', isDark ? 'dark' : 'light');
+    };
 
     const handleDeleteMessage = useCallback(async (messageIdToDelete) => {
         const currentActiveChatIdVal = activeChatIdRef.current; 
@@ -1123,27 +1082,20 @@ const MainContent = () => {
     }, [activeChat, activeChatId, currentChatModelId, isGuest, getToken, setChats, setNewChatModelId, addNotification]);
 
 
-    useEffect(() => {
-        if (activeChatId === null) {
-            setNewChatModelId('google/gemini-1.5-flash-latest');
-        }
-    }, [activeChatId]);
-
     return (
         <>
             <ImageViewerModal imageUrl={viewingImageUrl} onClose={() => setViewingImageUrl(null)} />
-            <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
-            <ModelSelectorModal
+            <HierarchicalModelSelector
                 isOpen={isModelSelectorOpen}
                 onClose={() => setIsModelSelectorOpen(false)}
-                selectedModel={currentChatModelId}
-                setSelectedModel={handleSetSelectedModel}
+                currentModelId={currentChatModelId}
+                onSelectModel={handleSetSelectedModel}
                 openSettings={() => setIsSettingsOpen(true)}
             />
             <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30 relative">
             <header className="flex justify-end items-center p-2 sm:p-4">
                 <div className="flex items-center gap-2 sm:gap-4">
-                        <div onClick={() => setIsSettingsOpen(true)} className="transition-transform duration-200 ease-out hover:scale-110">
+                    <div onClick={() => navigate('/settings')} className="transition-transform duration-200 ease-out hover:scale-110">
                             <GlassPanel className="p-2 rounded-full cursor-pointer">
                                 <Settings className="text-slate-500 dark:text-gray-400" size={20} />
                             </GlassPanel>

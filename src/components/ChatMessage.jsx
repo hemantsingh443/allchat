@@ -5,10 +5,11 @@ import { User, Sparkles, Pencil, Check, X, Trash2, Globe, ChevronDown, GitBranch
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import BranchModelSelector, { CapabilityIcons } from './BranchModelSelector';
+import HierarchicalModelSelector from './HierarchicalModelSelector';
 import { allModels } from '../data/models';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
+import ActionTooltip from './ActionTooltip';
 
 // ====================================================================
 // Simplified Search Result Components (No changes needed here)
@@ -245,6 +246,21 @@ const LaTeXRenderer = ({ children, display = false }) => {
     }
 };
 
+// Inline CapabilityIcons for model badges
+const CapabilityIcons = ({ capabilities = {}, size = 14 }) => (
+    <div className="flex items-center gap-1.5 text-slate-400">
+        {capabilities?.vision && <Eye size={size} className="text-green-400" title="Vision" />}
+        {capabilities?.reasoning && <Brain size={size} className="text-purple-400" title="Reasoning" />}
+        {capabilities?.code && <Code size={size} className="text-orange-400" title="Code" />}
+    </div>
+);
+
+const LanguageLabel = ({ language }) => (
+    <div className="absolute top-0 left-3 text-xs font-semibold text-slate-400 dark:text-slate-500 bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-sm px-2 py-0.5 rounded-b-md border border-t-0 border-slate-200 dark:border-slate-700">
+        {language}
+    </div>
+);
+
 const ChatMessage = React.memo(({
     id, text, sender, editCount, imageUrl, usedWebSearch, modelId,
     handleUpdateMessage, handleDeleteMessage, onImageClick,
@@ -259,6 +275,7 @@ const ChatMessage = React.memo(({
     const [showBranchModelSelector, setShowBranchModelSelector] = useState(false);
     const [isHoveringImage, setIsHoveringImage] = useState(false);
     const [showReasoning, setShowReasoning] = useState(true);
+    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
     const modelDetails = allModels.find(m => m.id === modelId);
     const isAI = sender === 'ai';
@@ -535,14 +552,15 @@ const ChatMessage = React.memo(({
 
                                                             if (!inline && match) {
                                                                 return (
-                                                                    <div className="relative group/code my-4">
+                                                                    <div className="relative group/code my-4 rounded-xl overflow-hidden">
                                                                         <CodeCopyButton textToCopy={codeString} />
+                                                                        <LanguageLabel language={match[1]} />
                                                                         <SyntaxHighlighter
                                                                             children={codeString}
                                                                             style={syntaxStyle}
                                                                             language={match[1]}
                                                                             PreTag="div"
-                                                                            className="custom-code-scrollbar"
+                                                                            className="custom-code-scrollbar !pt-8"
                                                                             customStyle={{
                                                                                 margin: 0,
                                                                                 padding: '1.25rem',
@@ -587,14 +605,15 @@ const ChatMessage = React.memo(({
 
                                                                     if (!inline && match) {
                                                                         return (
-                                                                            <div className="relative group/code my-4">
+                                                                            <div className="relative group/code my-4 rounded-xl overflow-hidden">
                                                                                 <CodeCopyButton textToCopy={codeString} />
+                                                                                <LanguageLabel language={match[1]} />
                                                                                 <SyntaxHighlighter
                                                                                     children={codeString}
                                                                                     style={syntaxStyle}
                                                                                     language={match[1]}
                                                                                     PreTag="div"
-                                                                                    className="custom-code-scrollbar"
+                                                                                    className="custom-code-scrollbar !pt-8"
                                                                                     customStyle={{
                                                                                         margin: 0,
                                                                                         padding: '1.25rem',
@@ -659,14 +678,15 @@ const ChatMessage = React.memo(({
 
                                                                 if (!inline && match) {
                                                                     return (
-                                                                        <div className="relative group/code my-4">
+                                                                        <div className="relative group/code my-4 rounded-xl overflow-hidden">
                                                                             <CodeCopyButton textToCopy={codeString} />
+                                                                            <LanguageLabel language={match[1]} />
                                                                             <SyntaxHighlighter
                                                                                 children={codeString}
                                                                                 style={syntaxStyle}
                                                                                 language={match[1]}
                                                                                 PreTag="div"
-                                                                                className="custom-code-scrollbar"
+                                                                                className="custom-code-scrollbar !pt-8"
                                                                                 customStyle={{
                                                                                     margin: 0,
                                                                                     padding: '1.25rem',
@@ -713,39 +733,41 @@ const ChatMessage = React.memo(({
                                         transition={{ duration: 0.3 }}
                                         className="pb-2 pt-3 mt-3 border-t border-slate-200 dark:border-slate-700/50 w-full"
                                     >
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="relative">
-                                                    <BranchModelSelector
-                                                        isOpen={showRegenModelSelector}
-                                                        onSelect={(newModelId) => { handleRegenerate(id, newModelId); setShowRegenModelSelector(false); }}
-                                                        onCancel={() => setShowRegenModelSelector(false)}
-                                                        title="Regenerate with"
-                                                        currentModelId={modelId}
-                                                        isGuest={isGuest}
-                                                    />
-                                                    <button onClick={() => setShowRegenModelSelector(s => !s)} className="text-xs flex items-center gap-1 text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200 transition-colors" title="Regenerate response">
-                                                        <span>via {modelDetails?.name || 'a model'}</span>
-                                                        <ChevronDown size={14} />
-                                                    </button>
-                                                </div>
-                                                {modelDetails?.capabilities && <CapabilityIcons capabilities={modelDetails.capabilities} />}
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-gray-400">
+                                                <button onClick={() => setShowRegenModelSelector(true)} className="flex items-center gap-1 hover:text-slate-700 dark:hover:text-gray-200 transition-colors" title="Regenerate with another model">
+                                                    <span>via {modelDetails?.name || 'an AI model'}</span>
+                                                    <ChevronDown size={14} />
+                                                </button>
+                                                {modelDetails?.capabilities && (
+                                                    <div className="hidden sm:flex">
+                                                        <CapabilityIcons capabilities={modelDetails.capabilities} />
+                                                    </div>
+                                                )}
                                             </div>
-                                            <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                                                 {text && <PlainTextCopyButton textToCopy={text} />}
-                                                <div className="relative">
-                                                    <BranchModelSelector
-                                                        isOpen={showBranchModelSelector}
-                                                        onSelect={(newModelId) => { handleBranch(id, newModelId); setShowBranchModelSelector(false); }}
-                                                        onCancel={() => setShowBranchModelSelector(false)}
-                                                        title="Branch with"
-                                                        currentModelId={modelId}
-                                                        isGuest={isGuest}
-                                                    />
-                                                    <button onClick={() => setShowBranchModelSelector(s => !s)} className="p-1 text-slate-500 dark:text-gray-400 hover:text-slate-700 dark:hover:text-gray-200" title="Branch into new chat">
+                                                <ActionTooltip text="Regenerate">
+                                                    <button onClick={() => handleRegenerate(id, modelId)} className="p-1.5 rounded-md text-slate-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10">
+                                                        <Sparkles size={14} />
+                                                    </button>
+                                                </ActionTooltip>
+                                                <ActionTooltip text="Branch Chat">
+                                                    <button onClick={() => setShowBranchModelSelector(true)} className="p-1.5 rounded-md text-slate-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10">
                                                         <GitBranch size={14} />
                                                     </button>
-                                                </div>
+                                                </ActionTooltip>
+                                                <HierarchicalModelSelector
+                                                    isOpen={showRegenModelSelector || showBranchModelSelector}
+                                                    title={showRegenModelSelector ? 'Regenerate with...' : 'Branch with...'}
+                                                    onClose={() => {setShowRegenModelSelector(false); setShowBranchModelSelector(false);}}
+                                                    onSelectModel={(newModelId) => {
+                                                        if (showRegenModelSelector) handleRegenerate(id, newModelId);
+                                                        if (showBranchModelSelector) handleBranch(id, newModelId);
+                                                    }}
+                                                    currentModelId={modelId}
+                                                    openSettings={() => setIsSettingsOpen(true)}
+                                                />
                                             </div>
                                         </div>
                                     </motion.div>

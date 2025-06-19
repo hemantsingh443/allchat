@@ -9,41 +9,51 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 
-
 const SITE_URL = process.env.SITE_URL || 'http://localhost:3000';
 
 // ====================================================================
 // HELPER: API KEY DETERMINATION
 // ====================================================================
-const determineApiKey = (modelId, userApiKey) => {
-    const freeModels = [
+const determineApiDetails = (modelId, userKeys, serverKeys) => {
+    const freeOpenRouterModels = [
         'mistralai/mistral-7b-instruct:free', 
         'mistralai/devstral-small:free',
         'deepseek/deepseek-r1:free',
-        'moonshotai/kimi-dev-72b:free'
+        'moonshotai/kimi-dev-72b:free',
+        'openai/gpt-4.1-nano'
     ];
-    const isGoogleModel = modelId.startsWith('google/');
-    const isFreeModel = freeModels.includes(modelId);
 
-    // Google models don't need an OpenRouter key.
+    // --- Google Models ---
+    const isGoogleModel = modelId.startsWith('google/');
     if (isGoogleModel) {
-        return { apiKey: null, usedServerKey: false };
+        // Free tier Google model paid by the server
+        if (modelId === 'google/gemini-1.5-flash-latest') {
+            if (!serverKeys.google) throw new Error("The free Google model is not configured on the server.");
+            return { apiKey: serverKeys.google, apiProvider: 'google', usedServerKey: true };
+        }
+        // User-paid Google model
+        if (userKeys.google) {
+            return { apiKey: userKeys.google, apiProvider: 'google', usedServerKey: false };
+        }
+        throw new Error("A Google API key is required to use this model.");
     }
 
+    // --- OpenRouter Models ---
+    const isFreeOpenRouterModel = freeOpenRouterModels.includes(modelId);
+
     // If a user has provided their own key, it always takes priority for non-Google models.
-    if (userApiKey) {
-        return { apiKey: userApiKey, usedServerKey: false };
+    if (userKeys.openrouter) {
+        return { apiKey: userKeys.openrouter, apiProvider: 'openrouter', usedServerKey: false };
     }
 
     // If no user key, check if it's a "free" model that the server can pay for.
-    if (isFreeModel) {
-        const serverKey = process.env.OPENROUTER_API_KEY;
-        if (!serverKey) throw new Error("The free model is not configured on the server.");
-        return { apiKey: serverKey, usedServerKey: true };
+    if (isFreeOpenRouterModel) {
+        if (!serverKeys.openrouter) throw new Error("The free model is not configured on the server.");
+        return { apiKey: serverKeys.openrouter, apiProvider: 'openrouter', usedServerKey: true };
     }
 
     // If it's a paid model and the user hasn't provided a key, it's an error.
-    throw new Error("An OpenRouter API key is required to use this model.");
+    throw new Error("An API key is required to use this model.");
 };
 
 // ====================================================================
@@ -548,8 +558,8 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
         if (fileData && fileMimeType && fileName) {
             fileInfo = { name: fileName, type: fileMimeType };
             if (fileMimeType.startsWith('image/')) {
-                imageUrl = await uploadImage(fileData);
                 imageDataForAI = fileData;
+                imageUrl = await uploadImage(fileData);
             } else if (fileMimeType === 'application/pdf') {
                 try {
                     const pdfBuffer = Buffer.from(fileData, 'base64');
@@ -605,7 +615,7 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
             });
             return;
         } else { 
-            const { apiKey: apiKeyToUse } = determineApiKey(modelId, userApiKey);
+            const { apiKey: apiKeyToUse } = determineApiDetails(modelId, userApiKey, process.env.OPENROUTER_API_KEY);
 
             let openRouterMessageContent = [{ type: 'text', text: finalPrompt }];
             if (imageDataForAI && fileMimeType.startsWith('image/')) {
@@ -725,6 +735,7 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
 
         // Step 4: Perform web search if enabled
         let searchResults = null;
+        let searchQueries = null;
         let finalPromptContent = newContent || ''; // Handle empty content
         
         // If content is empty or just a placeholder, provide a default prompt for image analysis
@@ -744,13 +755,13 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             
             const searchResponse = await tavily.search(searchQuery, { maxResults: 5 });
             searchResults = searchResponse.results;
-            const contextText = searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
-            finalPromptContent = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${finalPromptContent}"`;
+            searchQueries = searchResponse.query_suggestions;
+            finalPromptContent = `Based on these search results:\n---\n${searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n')}\n---\n\nAnswer the user's query: "${finalPromptContent}"`;
         }
 
         // Step 5: Call the AI with the updated content, history, and search results
         let aiResponseContent = '';
-        let reasoningData = null;
+        let reasoningData = '';
         const isGoogleModel = modelId.startsWith('google/');
 
         if (isGoogleModel) {
@@ -766,7 +777,7 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
             aiResponseContent = result.response.text();
         } else {
             // Modified logic to select the correct API key
-            const { apiKey: apiKeyToUse } = determineApiKey(modelId, userApiKey);
+            const { apiKey: apiKeyToUse, usedServerKey } = determineApiDetails(modelId, userApiKey, process.env.OPENROUTER_API_KEY);
 
             // Include search results in the system message if available
             const systemMessage = searchResults 
@@ -1086,8 +1097,14 @@ export const migrateGuestChats = (db) => async (req, res) => {
     const { userId } = getAuth(req);
     const { guestChats } = req.body;
 
-    if (!guestChats || !Array.isArray(guestChats) || guestChats.length === 0) {
-        return res.status(400).json({ error: 'No guest data provided for migration.' });
+    if (!guestChats) {
+        return res.status(400).json({ error: 'Migration request body is missing the "guestChats" property.' });
+    }
+    if (!Array.isArray(guestChats)) {
+        return res.status(400).json({ error: '"guestChats" property must be an array.' });
+    }
+    if (guestChats.length === 0) {
+        return res.status(400).json({ error: '"guestChats" array cannot be empty.' });
     }
 
     try {
@@ -1286,84 +1303,91 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
 
         } else {
             return new Promise(async (resolve, reject) => {
-                const { apiKey: apiKeyToUse, usedServerKey } = determineApiKey(modelId, userApiKey);
-                if (usedServerKey) res.write(`data: ${JSON.stringify({ type: 'key_usage', source: 'server_default' })}\n\n`);
+                try {
+                    const userApiKeys = { openrouter: userApiKey, google: req.body.userGoogleKey };
+                    const serverApiKeys = { openrouter: process.env.OPENROUTER_API_KEY, google: process.env.GOOGLE_API_KEY };
+                    const { apiKey: apiKeyToUse, usedServerKey } = determineApiDetails(modelId, userApiKeys, serverApiKeys);
 
-                const openRouterMessageContent = [{ type: 'text', text: finalPrompt }];
-                if (imageDataForAI && fileMimeType.startsWith('image/')) {
-                    openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${fileMimeType};base64,${imageDataForAI}` } });
-                }
+                    if (usedServerKey) res.write(`data: ${JSON.stringify({ type: 'key_usage', source: 'server_default' })}\n\n`);
 
-                const apiMessages = [
-                    ...history.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
-                    { role: 'user', content: openRouterMessageContent }
-                ];
-
-                const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
-                    body: JSON.stringify({ 
-                        model: modelId, messages: apiMessages,
-                        include_reasoning: modelId === 'deepseek/deepseek-r1:free', stream: true,
-                        max_tokens: calculateMaxTokens({
-                            isGuest: !userId, modelId, hasUserKey: !!userApiKey,
-                            messageLength: finalPrompt.length, isStreaming: true,
-                            useWebSearch, maximizeTokens: req.body.maximizeTokens || false
-                        })
-                    }),
-                });
-
-                if (!openRouterResponse.ok) {
-                    const errorData = await openRouterResponse.json();
-                    return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'An unknown error occurred'}`));
-                }
-
-                const stream = openRouterResponse.body;
-                let buffer = '';
-
-                stream.on('data', (chunk) => {
-                    buffer += chunk.toString();
-                    let boundary;
-                    while ((boundary = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.substring(0, boundary);
-                        buffer = buffer.substring(boundary + 1);
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            if (data.trim() === '[DONE]') return;
-                            try {
-                                const parsed = JSON.parse(data);
-                                if (parsed.choices?.[0]) {
-                                    const choice = parsed.choices[0];
-                                    if (choice.delta?.content) {
-                                        aiResponseContent += choice.delta.content;
-                                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
-                                    }
-                                    if (choice.delta?.reasoning) {
-                                        reasoningData += choice.delta.reasoning;
-                                        res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
-                                    }
-                                }
-                            } catch (e) { console.error('Error parsing streaming data line:', line, e); }
-                        }
+                    const openRouterMessageContent = [{ type: 'text', text: finalPrompt }];
+                    if (imageDataForAI && fileMimeType.startsWith('image/')) {
+                        openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${fileMimeType};base64,${imageDataForAI}` } });
                     }
-                });
 
-                stream.on('end', async () => {
-                    try {
-                        const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
-                        const [aiMessage] = await db.insert(schema.messages).values({ 
-                            chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId: modelId,
-                            searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
-                            reasoning: reasoningData || null
-                        }).returning();
+                    const apiMessages = [
+                        ...history.map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content })),
+                        { role: 'user', content: openRouterMessageContent }
+                    ];
 
-                        res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: reasoningData || null }})}\n\n`);
-                        res.end();
-                        resolve();
-                    } catch (dbError) { reject(dbError); }
-                });
+                    const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
+                        body: JSON.stringify({ 
+                            model: modelId, messages: apiMessages,
+                            include_reasoning: modelId === 'deepseek/deepseek-r1:free', stream: true,
+                            max_tokens: calculateMaxTokens({
+                                isGuest: !userId, modelId, hasUserKey: !!userApiKey,
+                                messageLength: finalPrompt.length, isStreaming: true,
+                                useWebSearch, maximizeTokens: req.body.maximizeTokens || false
+                            })
+                        }),
+                    });
 
-                stream.on('error', (error) => reject(error));
+                    if (!openRouterResponse.ok) {
+                        const errorData = await openRouterResponse.json();
+                        return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'An unknown error occurred'}`));
+                    }
+
+                    const stream = openRouterResponse.body;
+                    let buffer = '';
+
+                    stream.on('data', (chunk) => {
+                        buffer += chunk.toString();
+                        let boundary;
+                        while ((boundary = buffer.indexOf('\n')) !== -1) {
+                            const line = buffer.substring(0, boundary);
+                            buffer = buffer.substring(boundary + 1);
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                if (data.trim() === '[DONE]') return;
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.choices?.[0]) {
+                                        const choice = parsed.choices[0];
+                                        if (choice.delta?.content) {
+                                            aiResponseContent += choice.delta.content;
+                                            res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
+                                        }
+                                        if (choice.delta?.reasoning) {
+                                            reasoningData += choice.delta.reasoning;
+                                            res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
+                                        }
+                                    }
+                                } catch (e) { console.error('Error parsing streaming data line:', line, e); }
+                            }
+                        }
+                    });
+
+                    stream.on('end', async () => {
+                        try {
+                            const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
+                            const [aiMessage] = await db.insert(schema.messages).values({ 
+                                chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId,
+                                searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
+                                reasoning: reasoningData || null
+                            }).returning();
+
+                            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: reasoningData || null }})}\n\n`);
+                            res.end();
+                            resolve();
+                        } catch (dbError) { reject(dbError); }
+                    });
+
+                    stream.on('error', (error) => reject(error));
+                } catch(e) {
+                    reject(e);
+                }
             });
         }
         
@@ -1371,12 +1395,12 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         if (isGoogleModel) {
             const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
             const [aiMessage] = await db.insert(schema.messages).values({ 
-                chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId: modelId,
+                chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId,
                 searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
                 reasoning: null
             }).returning();
 
-            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults: finalSearchResults, reasoning: null }})}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: null } })}\n\n`);
             res.end();
         }
 
@@ -1389,7 +1413,7 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
 
 export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);
-    const { messageId, newContent, chatId, modelId, userApiKey, useWebSearch, userTavilyKey } = req.body;
+    const { messageId, newContent, chatId, modelId, userApiKey, userTavilyKey, userGoogleKey } = req.body;
     
     if (!messageId || !chatId || !modelId) {
         return res.status(400).json({ error: 'Missing required fields for regeneration.' });
@@ -1406,9 +1430,12 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
             .set({
                 content: newContent,
                 editCount: sql`${schema.messages.editCount} + 1`,
-                usedWebSearch: useWebSearch || false
+                usedWebSearch: req.body.useWebSearch || false
             })
-            .where(and(eq(schema.messages.id, messageId), eq(schema.messages.sender, 'user')))
+            .where(and(
+                eq(schema.messages.id, messageId),
+                eq(schema.messages.sender, 'user')
+            ))
             .returning();
         
         if (!updatedUserMessage) {
@@ -1428,7 +1455,7 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
         let searchResults = null;
         let finalPromptContent = newContent || 'Please analyze this image and provide a detailed description.';
         
-        if (useWebSearch) {
+        if (req.body.useWebSearch) {
             const tavilyKeyToUse = userTavilyKey || process.env.TAVILY_API_KEY;
             if (!tavilyKeyToUse) throw new Error("No Tavily API key available.");
             
@@ -1461,17 +1488,13 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
         if (isGoogleModel) {
             const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
             const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
-            
-            // Correctly format the payload for Gemini API
             let streamInput;
             if (imageDataForAI && updatedUserMessage.fileType) {
                 streamInput = [ { text: finalPromptContent }, { inlineData: { data: imageDataForAI, mimeType: updatedUserMessage.fileType } } ];
             } else {
                 streamInput = finalPromptContent;
             }
-            
             const result = await chat.sendMessageStream(streamInput);
-
             for await (const chunk of result.stream) {
                 const chunkText = chunk.text();
                 if (chunkText) {
@@ -1479,85 +1502,98 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                     res.write(`data: ${JSON.stringify({ type: 'content_word', content: chunkText })}\n\n`);
                 }
             }
+            const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: null }).returning();
+            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: null } })}\n\n`);
+            res.end();
         } else {
             return new Promise(async (resolve, reject) => {
-                const { apiKey: apiKeyToUse, usedServerKey } = determineApiKey(modelId, userApiKey);
-                if (usedServerKey) res.write(`data: ${JSON.stringify({ type: 'key_usage', source: 'server_default' })}\n\n`);
-
-                const openRouterMessageContent = [{ type: 'text', text: finalPromptContent }];
-                if (imageDataForAI && updatedUserMessage.fileType) {
-                    openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${updatedUserMessage.fileType};base64,${imageDataForAI}` } });
-                }
-
-                const apiMessages = [
-                    ...historyForAI.map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content })),
-                    { role: 'user', content: openRouterMessageContent }
-                ];
-
-                const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
-                    body: JSON.stringify({ 
-                        model: modelId, messages: apiMessages,
-                        include_reasoning: modelId === 'deepseek/deepseek-r1:free', stream: true,
-                        max_tokens: calculateMaxTokens({
-                            isGuest: !userId, modelId, hasUserKey: !!userApiKey,
-                            messageLength: finalPromptContent.length, isStreaming: true,
-                            useWebSearch, maximizeTokens: req.body.maximizeTokens || false
-                        })
-                    }),
-                });
-
-                if (!openRouterResponse.ok) {
-                    const errorData = await openRouterResponse.json();
-                    return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'Unknown error'}`));
-                }
-
-                const stream = openRouterResponse.body;
-                let buffer = '';
-
-                stream.on('data', (chunk) => {
-                    buffer += chunk.toString();
-                    let boundary;
-                    while ((boundary = buffer.indexOf('\n')) !== -1) {
-                        const line = buffer.substring(0, boundary);
-                        buffer = buffer.substring(boundary + 1);
-                        if (line.startsWith('data: ')) {
-                            const data = line.slice(6);
-                            if (data.trim() === '[DONE]') return;
-                            try {
-                                const parsed = JSON.parse(data);
-                                if (parsed.choices?.[0]) {
-                                    const choice = parsed.choices[0];
-                                    if (choice.delta?.content) {
-                                        aiResponseContent += choice.delta.content;
-                                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
-                                    }
-                                    if (choice.delta?.reasoning) {
-                                        reasoningData += choice.delta.reasoning;
-                                        res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
-                                    }
-                                }
-                            } catch (e) { console.error('Error parsing streaming data line:', line, e); }
-                        }
+                try {
+                    const userApiKeys = { openrouter: userApiKey, google: userGoogleKey };
+                    const serverApiKeys = { openrouter: process.env.OPENROUTER_API_KEY, google: process.env.GOOGLE_API_KEY };
+                    const { apiKey: apiKeyToUse, usedServerKey } = determineApiDetails(modelId, userApiKeys, serverApiKeys);
+                    if (usedServerKey) res.write(`data: ${JSON.stringify({ type: 'key_usage', source: 'server_default' })}\n\n`);
+                    const openRouterMessageContent = [{ type: 'text', text: finalPromptContent }];
+                    if (imageDataForAI && updatedUserMessage.fileType) {
+                        openRouterMessageContent.push({ type: 'image_url', image_url: { url: `data:${updatedUserMessage.fileType};base64,${imageDataForAI}` } });
                     }
-                });
-
-                stream.on('end', async () => {
-                    try {
-                        const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: reasoningData || null }).returning();
-                        res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: reasoningData || null } })}\n\n`);
-                        res.end();
-                        resolve();
-                    } catch (dbError) { reject(dbError); }
-                });
-                stream.on('error', (error) => reject(error));
+                    const apiMessages = [
+                        ...historyForAI.map(m => ({ role: m.sender === 'ai' ? 'assistant' : 'user', content: m.content })),
+                        { role: 'user', content: openRouterMessageContent }
+                    ];
+                    const openRouterResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiKeyToUse}` },
+                        body: JSON.stringify({ 
+                            model: modelId, messages: apiMessages,
+                            include_reasoning: modelId === 'deepseek/deepseek-r1:free', stream: true,
+                            max_tokens: calculateMaxTokens({
+                                isGuest: !userId, modelId, hasUserKey: !!userApiKey,
+                                messageLength: finalPromptContent.length, isStreaming: true,
+                                useWebSearch: req.body.useWebSearch || false,
+                                maximizeTokens: req.body.maximizeTokens || false
+                            })
+                        }),
+                    });
+                    if (!openRouterResponse.ok) {
+                        const errorData = await openRouterResponse.json();
+                        return reject(new Error(`OpenRouter Error: ${errorData.error?.message || 'An unknown error occurred'}`));
+                    }
+                    const stream = openRouterResponse.body;
+                    let buffer = '';
+                    stream.on('data', (chunk) => {
+                        buffer += chunk.toString();
+                        let boundary;
+                        while ((boundary = buffer.indexOf('\n')) !== -1) {
+                            const line = buffer.substring(0, boundary);
+                            buffer = buffer.substring(boundary + 1);
+                            if (line.startsWith('data: ')) {
+                                const data = line.slice(6);
+                                if (data.trim() === '[DONE]') return;
+                                try {
+                                    const parsed = JSON.parse(data);
+                                    if (parsed.choices?.[0]) {
+                                        const choice = parsed.choices[0];
+                                        if (choice.delta?.content) {
+                                            aiResponseContent += choice.delta.content;
+                                            res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
+                                        }
+                                        if (choice.delta?.reasoning) {
+                                            reasoningData += choice.delta.reasoning;
+                                            res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
+                                        }
+                                    }
+                                } catch (e) { console.error('Error parsing streaming data line:', line, e); }
+                            }
+                        }
+                    });
+                    stream.on('end', async () => {
+                        try {
+                            const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
+                            const [aiMessage] = await db.insert(schema.messages).values({ 
+                                chatId, sender: 'ai', content: aiResponseContent, modelId,
+                                searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
+                                reasoning: reasoningData || null
+                            }).returning();
+                            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: reasoningData || null } })}\n\n`);
+                            res.end();
+                            resolve();
+                        } catch (dbError) { reject(dbError); }
+                    });
+                    stream.on('error', (error) => reject(error));
+                } catch (e) {
+                    reject(e);
+                }
             });
         }
         
         if (isGoogleModel) {
-            const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: null }).returning();
-            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: null } })}\n\n`);
+            const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
+            const [aiMessage] = await db.insert(schema.messages).values({ 
+                chatId, sender: 'ai', content: aiResponseContent, modelId,
+                searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
+                reasoning: null
+            }).returning();
+            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: null } })}\n\n`);
             res.end();
         }
 
@@ -1565,5 +1601,61 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
         console.error('Error in streaming regeneration:', error);
         res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);
         res.end();
+    }
+};
+
+export const getUserStats = (db) => async (req, res) => {
+    const { userId } = getAuth(req);
+
+    try {
+        // 1. Get total chat count
+        const [chatCountResult] = await db
+            .select({ value: count() })
+            .from(schema.chats)
+            .where(eq(schema.chats.userId, userId));
+
+        // 2. Get model usage breakdown
+        const modelUsageResult = await db
+            .select({
+                modelId: schema.chats.modelId,
+                count: count(),
+            })
+            .from(schema.chats)
+            .where(eq(schema.chats.userId, userId))
+            .groupBy(schema.chats.modelId)
+            .orderBy(desc(count()));
+
+        // 3. Get total message count
+        // First get all chat IDs for the user
+        const userChats = await db
+            .select({ id: schema.chats.id })
+            .from(schema.chats)
+            .where(eq(schema.chats.userId, userId));
+
+        const userChatIds = userChats.map(c => c.id);
+        let messageCountResult = { value: 0 };
+
+        if (userChatIds.length > 0) {
+            [messageCountResult] = await db
+                .select({ value: count() })
+                .from(schema.messages)
+                .where(and(
+                    inArray(schema.messages.chatId, userChatIds),
+                    eq(schema.messages.sender, 'user') // Only count user messages
+                ));
+        }
+
+        res.status(200).json({
+            success: true,
+            stats: {
+                chatCount: chatCountResult.value,
+                modelUsage: modelUsageResult,
+                messageCount: messageCountResult.value,
+            },
+        });
+
+    } catch (error) {
+        console.error("Error fetching user stats:", error);
+        res.status(500).json({ success: false, error: "Failed to fetch user statistics." });
     }
 };

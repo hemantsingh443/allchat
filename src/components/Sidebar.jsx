@@ -4,7 +4,7 @@ import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, A
 import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../T3ChatUI';
 import { useNotification } from '../contexts/NotificationContext';
-import { allModels } from '../data/models';
+import { allModels, modelCategories } from '../data/models';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 const GUEST_STORAGE_KEY = 'allchat-guest-history';
@@ -50,6 +50,9 @@ const CategoryHeader = ({ title }) => (
     </div>
 );
 
+// Providers whose logos are dark and need to be inverted in dark mode.
+const providersToInvert = ['OpenAI', 'xAI', 'Kimi', 'Ollama', 'Community'];
+
 const ChatItem = React.memo(({ 
     chat,
     depth,
@@ -71,6 +74,11 @@ const ChatItem = React.memo(({
     if (!chat || !chat.id) {
         return null;
     }
+    
+    const getModelCategory = (modelId) => {
+        return modelCategories.find(cat => cat.models.some(m => m.id === modelId));
+    };
+    const modelCategory = getModelCategory(chat.modelId);
     
     const handleChatSelect = () => {
         onSelect(chat.id);
@@ -103,7 +111,9 @@ const ChatItem = React.memo(({
                     {chat.sourceChatId ? (
                         <GitBranch size={16} className="text-blue-500/70 dark:text-blue-400/70 flex-shrink-0" />
                     ) : (
-                        <MessageSquare size={16} className="text-slate-500 dark:text-gray-400 flex-shrink-0" />
+                        <span className={`w-4 h-4 text-slate-700 dark:text-gray-300 flex-shrink-0 ${providersToInvert.includes(modelCategory?.name) ? 'dark:invert' : ''}`}>
+                            {modelCategory?.logo || <MessageSquare size={16}/>}
+                        </span>
                     )}
 
                     {isEditing ? (
@@ -576,7 +586,13 @@ const Sidebar = ({ isOpen, toggle }) => {
                             )}
                         </div>
                         <div className="flex items-center gap-2">
-                            {!isGuest && <UserButton afterSignOutUrl='/' />}
+                            {!isGuest && 
+                                <UserButton 
+                                    userProfileMode="navigation"
+                                    userProfileUrl="/settings/profile"
+                                    afterSignOutUrl='/' 
+                                />
+                            }
                             <button
                                 onClick={toggle}
                                 className="p-1.5 rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"

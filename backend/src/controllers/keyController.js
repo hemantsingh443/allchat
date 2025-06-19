@@ -79,3 +79,44 @@ export const verifyTavilyKey = async (req, res) => {
         res.status(500).json({ success: false, error: 'Failed to contact Tavily for verification.' });
     }
 };
+
+export const verifyGoogleKey = async (req, res) => {
+    const { apiKey } = req.body;
+    if (!apiKey) {
+        return res.status(400).json({ success: false, error: 'API Key is required.' });
+    }
+
+    try {
+        console.log('Verifying Google API key...');
+        // A lightweight, authenticated call to list models is a good way to verify a key.
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`, {
+            method: "GET",
+        });
+
+        const responseData = await response.json();
+
+        if (response.ok && responseData.models) {
+            res.status(200).json({ 
+                success: true, 
+                message: 'Google API Key is valid.',
+            });
+        } else {
+            const errorMessage = responseData.error?.message || 'Invalid Google API Key.';
+            console.error('Google key verification failed:', {
+                status: response.status,
+                error: errorMessage,
+            });
+            res.status(response.status).json({ 
+                success: false, 
+                error: errorMessage,
+            });
+        }
+    } catch (error) {
+        console.error('Error verifying Google API key:', error);
+        res.status(500).json({ 
+            success: false, 
+            error: 'Failed to contact Google for verification.',
+            details: error.message
+        });
+    }
+};

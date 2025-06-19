@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { X, AlertTriangle, CheckCircle, Info } from 'lucide-react';
 import GlassPanel from '../components/GlassPanel';
 
-const NotificationContext = createContext(null);
+export const NotificationContext = createContext(null);
 
 export const useNotification = () => useContext(NotificationContext);
 
