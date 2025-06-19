@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from 'react';
+import React, { useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import Sidebar, { SidebarToggle } from './components/Sidebar';
 import MainContent from './components/MainContent';
 import { useAuth } from '@clerk/clerk-react';
@@ -26,6 +26,14 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
 
+    // Add chat state
+    const [chats, setChats] = useState([]);
+    const [activeChatId, setActiveChatId] = useState(null);
+
+    // Get getToken and getConfirmation for context
+    const { getToken } = useAuth();
+    const { getConfirmation } = useNotification();
+
     // Set sidebar state based on viewport size
     useEffect(() => {
         setIsSidebarOpen(isDesktop);
@@ -40,20 +48,32 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, []);
 
-    const handleModalConfirmation = (shouldMigrate) => {
-        setIsMigrationModalOpen(false);
-        handleSignIn(shouldMigrate);
-    };
+    const triggerSignInFlow = useCallback(() => {
+        setIsMigrationModalOpen(true);
+    }, []);
 
     const toggleSidebar = () => {
         setIsSidebarOpen(!isSidebarOpen);
     };
 
+    const contextValue = useMemo(() => ({
+        isGuest,
+        handleSignIn: () => setIsMigrationModalOpen(true),
+        chats,
+        setChats,
+        activeChatId,
+        setActiveChatId,
+        isSidebarOpen,
+        setIsSidebarOpen,
+        getToken,
+        getConfirmation
+    }), [isGuest, handleSignIn, chats, setChats, activeChatId, setActiveChatId, isSidebarOpen, setIsSidebarOpen, getToken, getConfirmation]);
+
     return (
-        <>
+        <AppContext.Provider value={contextValue}>
             <MigrationModal 
                 isOpen={isMigrationModalOpen}
-                onConfirm={handleModalConfirmation}
+                onConfirm={(shouldMigrate) => { setIsMigrationModalOpen(false); handleSignIn(shouldMigrate); }}
                 onCancel={() => setIsMigrationModalOpen(false)}
             />
             <div 
@@ -69,7 +89,7 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
                     <SidebarToggle isOpen={isSidebarOpen} toggle={toggleSidebar} isMobile={!isDesktop} />
                 </main>
             </div>
-        </>
+        </AppContext.Provider>
     );
 };
 

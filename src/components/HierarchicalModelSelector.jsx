@@ -34,10 +34,14 @@ const ModelCard = ({ model, isSelected, onSelect, isLocked, onLockClick }) => {
     );
 };
 
-const HierarchicalModelSelector = ({ isOpen, onClose, onSelectModel, currentModelId, openSettings, title = "Select a Model" }) => {
+const HierarchicalModelSelector = ({ isOpen, onClose, onSelectModel, currentModelId, openSettings, title = "Select a Model", isGuest = false }) => {
     const [selectedProvider, setSelectedProvider] = useState(null);
     const { userKeys } = useApiKeys();
     const { addNotification } = useNotification();
+
+    const guestAllowedModelIds = [
+        'google/gemini-1.5-flash-latest', 'openai/gpt-4.1-nano', 'mistralai/mistral-7b-instruct:free', 'mistralai/devstral-small:free'
+    ];
 
     const handleSelect = (model) => {
         onSelectModel(model.id);
@@ -67,7 +71,9 @@ const HierarchicalModelSelector = ({ isOpen, onClose, onSelectModel, currentMode
                                 {/* Left Panel: Providers */}
                                 <div className="w-1/3 border-r border-black/10 dark:border-white/10 pr-4 space-y-2 overflow-y-auto custom-scrollbar">
                                     <h3 className="px-2 pb-2 text-sm font-semibold text-slate-800 dark:text-gray-200">Providers</h3>
-                                    {modelCategories.map(category => (
+                                    {modelCategories
+                                        .filter(category => !isGuest || category.models.some(m => guestAllowedModelIds.includes(m.id)))
+                                        .map(category => (
                                         <button 
                                             key={category.name} 
                                             onClick={() => setSelectedProvider(category)}
@@ -92,13 +98,15 @@ const HierarchicalModelSelector = ({ isOpen, onClose, onSelectModel, currentMode
                                                 className="absolute inset-0 overflow-y-auto pr-2 custom-scrollbar"
                                             >
                                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                                    {selectedProvider.models.map(model => {
+                                                    {selectedProvider.models
+                                                        .filter(model => !isGuest || guestAllowedModelIds.includes(model.id))
+                                                        .map(model => {
                                                         const isLocked = (!model.isFree && !userKeys.openrouter && !model.id.startsWith('google/')) || 
                                                                          (!model.isFree && model.id.startsWith('google/') && !userKeys.google);
                                                         return (
                                                             <ModelCard 
                                                                 key={model.id}
-                                                                model={{ ...model, provider: selectedProvider.name, providerLogo: selectedProvider.logo }}
+                                                                model={{...model, provider: selectedProvider.name, providerLogo: selectedProvider.logo }}
                                                                 isSelected={currentModelId === model.id}
                                                                 onSelect={() => handleSelect(model)}
                                                                 isLocked={isLocked}

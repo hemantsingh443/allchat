@@ -745,21 +745,21 @@ const ChatMessage = React.memo(({
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                                            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                                                 {text && <PlainTextCopyButton textToCopy={text} />}
                                                 <ActionTooltip text="Regenerate">
-                                                    <button onClick={() => handleRegenerate(id, modelId)} className="p-1.5 rounded-md text-slate-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10">
+                                                    <button onClick={() => handleRegenerate(id, modelId)} className="p-1.5 rounded-md text-slate-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10" title="Regenerate with same model">
                                                         <Sparkles size={14} />
                                                     </button>
                                                 </ActionTooltip>
                                                 <ActionTooltip text="Branch Chat">
-                                                    <button onClick={() => setShowBranchModelSelector(true)} className="p-1.5 rounded-md text-slate-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10">
+                                                    <button onClick={() => setShowBranchModelSelector(true)} className="p-1.5 rounded-md text-slate-500 dark:text-gray-400 hover:bg-black/5 dark:hover:bg-white/10" title="Branch into new chat">
                                                         <GitBranch size={14} />
                                                     </button>
                                                 </ActionTooltip>
                                                 <HierarchicalModelSelector
                                                     isOpen={showRegenModelSelector || showBranchModelSelector}
-                                                    title={showRegenModelSelector ? 'Regenerate with...' : 'Branch with...'}
+                                                    title={showRegenModelSelector ? 'Regenerate with' : 'Branch with'}
                                                     onClose={() => {setShowRegenModelSelector(false); setShowBranchModelSelector(false);}}
                                                     onSelectModel={(newModelId) => {
                                                         if (showRegenModelSelector) handleRegenerate(id, newModelId);
@@ -767,6 +767,7 @@ const ChatMessage = React.memo(({
                                                     }}
                                                     currentModelId={modelId}
                                                     openSettings={() => setIsSettingsOpen(true)}
+                                                    isGuest={isGuest}
                                                 />
                                             </div>
                                         </div>
