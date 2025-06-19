@@ -1095,11 +1095,17 @@ const MainContent = () => {
             <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30 relative">
             <header className="flex justify-end items-center p-2 sm:p-4">
                 <div className="flex items-center gap-2 sm:gap-4">
-                    <div onClick={() => navigate('/settings')} className="transition-transform duration-200 ease-out hover:scale-110">
-                            <GlassPanel className="p-2 rounded-full cursor-pointer">
-                                <Settings className="text-slate-500 dark:text-gray-400" size={20} />
-                            </GlassPanel>
-                        </div>
+                    <div
+                        onClick={() => {
+                            if (!isGuest) navigate('/settings');
+                        }}
+                        className={`transition-transform duration-200 ease-out ${isGuest ? '' : 'hover:scale-110'}`}
+                        title={isGuest ? 'Sign in to access settings' : ''}
+                    >
+                        <GlassPanel className={`p-2 rounded-full ${isGuest ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}>
+                            <Settings className="text-slate-500 dark:text-gray-400" size={20} />
+                        </GlassPanel>
+                    </div>
                     <div className="transition-transform duration-200 ease-out hover:scale-110" onClick={toggleTheme}>
                         <GlassPanel className="p-2 rounded-full cursor-pointer">
                             <span className="dark:hidden"><Moon size={20} className="text-slate-500" /></span>
