@@ -1385,7 +1385,7 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                     });
 
                     stream.on('error', (error) => reject(error));
-                } catch(e) {
+                } catch (e) {
                     reject(e);
                 }
             });
@@ -1402,6 +1402,7 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
 
             res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: null } })}\n\n`);
             res.end();
+            return;
         }
 
     } catch (error) {
@@ -1505,6 +1506,7 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
             const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: null }).returning();
             res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: null } })}\n\n`);
             res.end();
+            return;
         } else {
             return new Promise(async (resolve, reject) => {
                 try {
@@ -1584,17 +1586,6 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                     reject(e);
                 }
             });
-        }
-        
-        if (isGoogleModel) {
-            const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
-            const [aiMessage] = await db.insert(schema.messages).values({ 
-                chatId, sender: 'ai', content: aiResponseContent, modelId,
-                searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
-                reasoning: null
-            }).returning();
-            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: null } })}\n\n`);
-            res.end();
         }
 
     } catch (error) {
