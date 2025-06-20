@@ -316,6 +316,7 @@ const Sidebar = ({ isOpen, toggle, onSignInRequest }) => {
     );
 };
 
+// This component is now defined inside Sidebar.jsx
 const SidebarToggle = ({ isOpen, toggle, isMobile }) => {
     if (isOpen && !isMobile) return null;
     return (
@@ -325,5 +326,5 @@ const SidebarToggle = ({ isOpen, toggle, isMobile }) => {
     )
 }
 
-export default Sidebar;
 export { SidebarToggle };
+export default Sidebar;

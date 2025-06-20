@@ -4,7 +4,7 @@ import './index.css';
 import { ApiKeyProvider } from './contexts/ApiKeyContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
 import { Routes, Route, useNavigate } from 'react-router-dom';
-import { useAuth, useSignIn, AuthenticateWithRedirectCallback, useUser } from '@clerk/clerk-react';
+import { useAuth, useSignIn, AuthenticateWithRedirectCallback } from '@clerk/clerk-react';
 import LandingPage from './pages/LandingPage';
 import SettingsPage from './pages/SettingsPage';
 import ProfileTab from './components/settings/ProfileTab';
@@ -19,21 +19,17 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 const GUEST_STORAGE_KEY = 'allchat-guest-history';
 const MIGRATION_PENDING_KEY = 'allchat-migration-pending';
 
-// Helper component to navigate home if a user lands on a non-existent page
 const NavigateToHome = () => {
     const navigate = useNavigate();
-    React.useEffect(() => {
-        navigate('/');
-    }, [navigate]);
+    useEffect(() => { navigate('/'); }, [navigate]);
     return null;
 }
 
-// Wrapped component that has access to notifications
 const AppContent = () => {
     const { userId, isLoaded, getToken } = useAuth();
     const { signIn, isLoaded: isSignInLoaded } = useSignIn();
     const [isGuestMode, setIsGuestMode] = useState(false);
-    const { addNotification } = useNotification();
+    const { addNotification, getConfirmation } = useNotification();
     const memoizedGetToken = useCallback(getToken, [getToken]);
     const isDesktop = window.matchMedia('(min-width: 768px)').matches;
     const [isSidebarOpen, setIsSidebarOpen] = useState(isDesktop);
@@ -41,18 +37,15 @@ const AppContent = () => {
     const [stats, setStats] = useState(null);
     const [activeChatId, setActiveChatId] = useState(null);
     const { font } = useFont();
-    const { getConfirmation } = useNotification();
-    
-    // The main handleSignIn function which will be called by T3ChatUI
+
+    const [messages, setMessages] = useState([]);
+    const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+
+    const isGuest = !userId;
+
     const handleSignIn = async (shouldMigrate) => {
         if (!isSignInLoaded) return;
-        
-        if (shouldMigrate) {
-            localStorage.setItem(MIGRATION_PENDING_KEY, 'true');
-        } else {
-            localStorage.removeItem(MIGRATION_PENDING_KEY);
-        }
-
+        localStorage.setItem(MIGRATION_PENDING_KEY, shouldMigrate ? 'true' : 'false');
         try {
             await signIn.authenticateWithRedirect({
                 strategy: 'oauth_google',
@@ -65,41 +58,81 @@ const AppContent = () => {
             addNotification("Sign-in failed. Please try again.", "error");
         }
     };
-    
+
     const contextValue = useMemo(() => ({
-        isGuest: !userId,
-        handleSignIn: handleSignIn, // Pass the full function
-        chats,
-        setChats,
+        isGuest,
+        handleSignIn,
+        chats, setChats,
         stats,
-        activeChatId,
-        setActiveChatId,
+        activeChatId, setActiveChatId,
         getToken: memoizedGetToken,
         getConfirmation,
-        isSidebarOpen,
-        setIsSidebarOpen,
-        font
+        isSidebarOpen, setIsSidebarOpen,
+        font,
+        messages, setMessages,
+        isLoadingMessages
     }), [
-        userId, chats, stats, activeChatId, memoizedGetToken, 
-        getConfirmation, isSidebarOpen, font
+        isGuest, chats, stats, activeChatId, memoizedGetToken, 
+        getConfirmation, isSidebarOpen, font, messages, isLoadingMessages, handleSignIn
     ]);
+    
+    const fetchMessages = useCallback(async (chatIdToFetch) => {
+        if (!chatIdToFetch) {
+            setMessages([]);
+            return;
+        }
+        if (isGuest) {
+            const guestChat = chats.find(c => c.id === chatIdToFetch);
+            setMessages(guestChat?.messages || []);
+            return;
+        }
+        setIsLoadingMessages(true);
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/chats/${chatIdToFetch}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            if (!res.ok) throw new Error(`Failed to fetch messages. Status: ${res.status}`);
+            const data = await res.json();
+            setMessages(data.map(msg => ({ ...msg, text: msg.content, searchResults: msg.searchResults ? JSON.parse(msg.searchResults) : null })));
+        } catch (error) {
+            console.error("[FetchMessages] Error for", chatIdToFetch, ":", error);
+            addNotification("Could not load messages for this chat.", 'error');
+            setMessages([{ id: 'error-' + chatIdToFetch, text: 'Could not load this chat.', sender: 'ai', content: 'Could not load this chat.' }]);
+        } finally {
+            setIsLoadingMessages(false);
+        }
+    }, [isGuest, chats, getToken, addNotification]);
 
-    // Handle migration after successful sign-in
     useEffect(() => {
-        if (isLoaded && userId && localStorage.getItem(MIGRATION_PENDING_KEY)) {
+        fetchMessages(activeChatId);
+    }, [activeChatId, fetchMessages]);
+
+    const migrateGuestData = useCallback(async (guestChats) => {
+        try {
+            const token = await getToken();
+            const res = await fetch(`${API_URL}/api/chats/migrate-guest`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                body: JSON.stringify({ guestChats }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || 'Migration failed.');
+        } catch (err) {
+            addNotification('Failed to migrate guest chats.', 'error');
+        }
+    }, [getToken, addNotification]);
+
+    useEffect(() => {
+        if (isLoaded && userId && localStorage.getItem(MIGRATION_PENDING_KEY) === 'true') {
             const guestChatsRaw = localStorage.getItem(GUEST_STORAGE_KEY);
             if (guestChatsRaw) {
                 try {
                     let guestChats = JSON.parse(guestChatsRaw); 
-
                     if (Array.isArray(guestChats)) {
                         guestChats = guestChats.filter(chat => chat && chat.id && chat.title && chat.modelId && chat.createdAt);
-                    }
-
-                    if (Array.isArray(guestChats) && guestChats.length > 0) { 
-                        migrateGuestData(guestChats);
-                    } else {
-                        localStorage.removeItem(GUEST_STORAGE_KEY);
+                        if (guestChats.length > 0) migrateGuestData(guestChats);
+                        else localStorage.removeItem(GUEST_STORAGE_KEY);
                     }
                 } catch (e) {
                     console.error("Failed to parse guest data for migration.", e);
@@ -108,37 +141,13 @@ const AppContent = () => {
             }
             localStorage.removeItem(MIGRATION_PENDING_KEY);
         }
-    }, [isLoaded, userId, addNotification, getToken]);
+    }, [isLoaded, userId, migrateGuestData]);
 
-    const migrateGuestData = async (guestChats) => {
-        try {
-            console.log("Attempting to migrate valid guest chats:", guestChats);
-            const token = await getToken();
-            const res = await fetch(`${API_URL}/api/chats/migrate-guest`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`,
-                },
-                body: JSON.stringify({ guestChats: guestChats }),
-            });
-            const data = await res.json();
-            if (!res.ok) {
-                throw new Error(data.error || data.details || 'Migration failed on the server.');
-            }
-        } catch (err) {
-            addNotification('Failed to migrate guest chats.', 'error');
-        }
-    };
-
-    const handleTryOut = () => {
-        setIsGuestMode(true);
-    };
+    const handleTryOut = () => { setIsGuestMode(true); };
   
     useEffect(() => {
         const savedTheme = localStorage.getItem('theme');
         const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
         if (savedTheme === 'dark' || (!savedTheme && systemPrefersDark)) {
             document.documentElement.classList.add('dark');
         } else {
@@ -161,39 +170,20 @@ const AppContent = () => {
                     setStats(statsData.stats);
                 } catch (error) {
                     console.error("Failed to fetch user data:", error);
-                    addNotification("Could not load your data. Please try refreshing.", "error");
+                    addNotification("Could not load your data.", "error");
                 }
             }
         };
         fetchData();
     }, [userId, getToken, addNotification]);
 
-    if (!isLoaded) {
-        return <div className="w-screen h-screen bg-gray-100 dark:bg-gray-900" />;
-    }
+    if (!isLoaded) return <div className="w-screen h-screen bg-gray-100 dark:bg-gray-900" />;
 
     return (
         <AppContext.Provider value={contextValue}>
             <Routes>
-                <Route 
-                    path="/" 
-                    element={
-                        userId ? (
-                            <T3ChatUI isGuest={false} />
-                        ) : isGuestMode ? (
-                            <T3ChatUI isGuest={true} handleSignIn={handleSignIn} />
-                        ) : (
-                            <LandingPage 
-                                onSignIn={() => handleSignIn(true)} 
-                                onTryOut={handleTryOut}
-                            />
-                        )
-                    }
-                />
-                <Route
-                    path="/sso-callback"
-                    element={<AuthenticateWithRedirectCallback />}
-                />
+                <Route path="/" element={ userId ? <T3ChatUI isGuest={false} /> : isGuestMode ? <T3ChatUI isGuest={true} handleSignIn={handleSignIn} /> : <LandingPage onSignIn={() => handleSignIn(true)} onTryOut={handleTryOut} /> } />
+                <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback />} />
                 <Route path="/settings" element={userId ? <SettingsPage /> : <NavigateToHome />}>
                     <Route index element={<ProfileTab />} />
                     <Route path="profile" element={<ProfileTab />} />

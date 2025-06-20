@@ -32,6 +32,7 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, []);
 
+    // This function is passed to the Sidebar to open the modal
     const triggerSignInFlow = useCallback(() => {
         setIsMigrationModalOpen(true);
     }, []);
@@ -46,16 +47,14 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
                 isOpen={isMigrationModalOpen}
                 onConfirm={(shouldMigrate) => {
                     setIsMigrationModalOpen(false);
-                    handleSignIn(shouldMigrate);
+                    // This calls the original function from App.js
+                    handleSignIn(shouldMigrate); 
                 }}
                 onCancel={() => setIsMigrationModalOpen(false)}
             />
             <div 
                 className="h-screen w-full font-sans overflow-hidden bg-white dark:bg-[#111015] interactive-aurora-bg"
-                style={{ 
-                    '--x': `${mousePos.x}px`, 
-                    '--y': `${mousePos.y}px` 
-                }}
+                style={{ '--x': `${mousePos.x}px`, '--y': `${mousePos.y}px` }}
             >
                 <main className="relative z-10 flex h-full">
                     <Sidebar isOpen={isSidebarOpen} toggle={toggleSidebar} onSignInRequest={triggerSignInFlow} />
