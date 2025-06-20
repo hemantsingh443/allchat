@@ -86,6 +86,10 @@ const ApiKeysTab = () => {
     };
     
     const handleDeleteKey = (keyType) => {
+        // Persist the empty key to localStorage via the context
+        updateApiKey(keyType, '');
+
+        // Clear the local component state to update the UI immediately
         if (keyType === 'openrouter') {
             setOpenRouterKey('');
             setOrStatus({ state: 'idle' });
@@ -96,6 +100,7 @@ const ApiKeysTab = () => {
             setGoogleKey('');
             setGoogleStatus({ state: 'idle' });
         }
+        addNotification(`${keyType.charAt(0).toUpperCase() + keyType.slice(1)} key has been removed.`, 'info');
     };
 
     return (

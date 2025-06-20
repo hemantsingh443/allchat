@@ -36,6 +36,7 @@ const AppContent = () => {
     const isDesktop = window.matchMedia('(min-width: 768px)').matches;
     const [isSidebarOpen, setIsSidebarOpen] = useState(isDesktop);
     const [chats, setChats] = useState([]);
+    const [stats, setStats] = useState(null);
     const [activeChatId, setActiveChatId] = useState(null);
     const { font } = useFont();
     const { getConfirmation } = useNotification();
@@ -44,6 +45,7 @@ const AppContent = () => {
         handleSignIn: () => handleSignIn(true), // Simplified sign-in trigger
         chats,
         setChats,
+        stats,
         activeChatId,
         setActiveChatId,
         getToken: memoizedGetToken,
@@ -52,7 +54,7 @@ const AppContent = () => {
         setIsSidebarOpen,
         font
     }), [
-        userId, chats, activeChatId, memoizedGetToken, 
+        userId, chats, stats, activeChatId, memoizedGetToken, 
         getConfirmation, isSidebarOpen, font
     ]);
 
@@ -149,6 +151,29 @@ const AppContent = () => {
         }
     }, []);
     // --- END THEME PERSISTENCE ---
+
+    // Centralized data fetching
+    useEffect(() => {
+        const fetchData = async () => {
+            if (userId) {
+                try {
+                    const token = await getToken();
+                    const [chatsRes, statsRes] = await Promise.all([
+                        fetch(`${API_URL}/api/chats`, { headers: { 'Authorization': `Bearer ${token}` } }),
+                        fetch(`${API_URL}/api/user-stats`, { headers: { 'Authorization': `Bearer ${token}` } })
+                    ]);
+                    const chatsData = await chatsRes.json();
+                    const statsData = await statsRes.json();
+                    setChats(Array.isArray(chatsData) ? chatsData : []);
+                    setStats(statsData.stats);
+                } catch (error) {
+                    console.error("Failed to fetch user data:", error);
+                    addNotification("Could not load your data. Please try refreshing.", "error");
+                }
+            }
+        };
+        fetchData();
+    }, [userId, getToken, addNotification]);
 
     if (!isLoaded) {
         return <div className="w-screen h-screen bg-gray-100 dark:bg-gray-900" />;
