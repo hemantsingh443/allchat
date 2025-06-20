@@ -1116,7 +1116,7 @@ export const handleGuestChatStreaming = (genAI) => async (req, res) => {
                                 res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
                             }
                             if (choice.delta?.reasoning) {
-                                res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: choice.delta.reasoning })}\n\n`);
+                                res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
                             }
                         }
                     } catch (e) {
@@ -1432,7 +1432,7 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                                         }
                                         if (choice.delta?.reasoning) {
                                             reasoningData += choice.delta.reasoning;
-                                            res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: choice.delta.reasoning })}\n\n`);
+                                            res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
                                         }
                                     }
                                 } catch (e) { console.error('Error parsing streaming data line:', line, e); }

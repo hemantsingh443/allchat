@@ -65,11 +65,12 @@ $$
 
 ## Technical Details
 
-The LaTeX support is implemented using:
-- **react-katex**: React components for KaTeX
-- **KaTeX**: Fast math typesetting library
-- Custom markdown parser integration
-- CSS styling for light/dark themes
+The LaTeX support is implemented using a standard and robust markdown processing pipeline:
+- **react-markdown**: A powerful React component for rendering markdown.
+- **remark-math**: A remark plugin to support math syntax.
+- **rehype-katex**: A rehype plugin to render math using KaTeX.
+- **KaTeX**: The underlying fast math typesetting library.
+- Custom CSS styling for light/dark themes.
 
 ## Testing
 

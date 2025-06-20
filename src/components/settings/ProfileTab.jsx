@@ -5,7 +5,7 @@ import { Mail, User as UserIcon, Calendar, MessageSquare, BrainCircuit, BarChart
 import { useApiKeys } from '../../contexts/ApiKeyContext';
 import { allModels, modelCategories } from '../../data/models';
 import UsageDetailModal from './UsageDetailModal';
-import { useAppContext } from '../../T3ChatUI';
+import { useAppContext } from '../../App'; // Corrected import path
 import StyledPanel from './StyledPanel';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
@@ -151,4 +151,4 @@ const ProfileTab = () => {
     );
 };
 
-export default ProfileTab; 
+export default ProfileTab;

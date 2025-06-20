@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useContext, createContext, useMemo, useCallback } from 'react';
-import T3ChatUI, { useAppContext } from './T3ChatUI';
+import T3ChatUI from './T3ChatUI';
 import './index.css';
 import { ApiKeyProvider } from './contexts/ApiKeyContext';
 import { NotificationProvider, useNotification } from './contexts/NotificationContext';
@@ -13,6 +13,8 @@ import ApiKeysTab from './components/settings/ApiKeysTab';
 import { FontProvider, useFont } from './contexts/FontContext';
 
 export const AppContext = createContext(null);
+export const useAppContext = () => useContext(AppContext);
+
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 const GUEST_STORAGE_KEY = 'allchat-guest-history';
 const MIGRATION_PENDING_KEY = 'allchat-migration-pending';
@@ -40,9 +42,33 @@ const AppContent = () => {
     const [activeChatId, setActiveChatId] = useState(null);
     const { font } = useFont();
     const { getConfirmation } = useNotification();
+    
+    // The main handleSignIn function which will be called by T3ChatUI
+    const handleSignIn = async (shouldMigrate) => {
+        if (!isSignInLoaded) return;
+        
+        if (shouldMigrate) {
+            localStorage.setItem(MIGRATION_PENDING_KEY, 'true');
+        } else {
+            localStorage.removeItem(MIGRATION_PENDING_KEY);
+        }
+
+        try {
+            await signIn.authenticateWithRedirect({
+                strategy: 'oauth_google',
+                redirectUrl: '/sso-callback',
+                redirectUrlComplete: '/',
+            });
+        } catch (err) {
+            console.error("Google Sign-In failed", err);
+            localStorage.removeItem(MIGRATION_PENDING_KEY);
+            addNotification("Sign-in failed. Please try again.", "error");
+        }
+    };
+    
     const contextValue = useMemo(() => ({
         isGuest: !userId,
-        handleSignIn: () => handleSignIn(true), // Simplified sign-in trigger
+        handleSignIn: handleSignIn, // Pass the full function
         chats,
         setChats,
         stats,
@@ -66,9 +92,6 @@ const AppContent = () => {
                 try {
                     let guestChats = JSON.parse(guestChatsRaw); 
 
-                    // --- ROBUST VALIDATION ---
-                    // 1. Ensure it's an array.
-                    // 2. Filter out any null, undefined, or malformed chat objects.
                     if (Array.isArray(guestChats)) {
                         guestChats = guestChats.filter(chat => chat && chat.id && chat.title && chat.modelId && chat.createdAt);
                     }
@@ -76,7 +99,6 @@ const AppContent = () => {
                     if (Array.isArray(guestChats) && guestChats.length > 0) { 
                         migrateGuestData(guestChats);
                     } else {
-                        // If there's nothing to migrate, just clear the keys and let the user proceed.
                         localStorage.removeItem(GUEST_STORAGE_KEY);
                     }
                 } catch (e) {
@@ -90,9 +112,7 @@ const AppContent = () => {
 
     const migrateGuestData = async (guestChats) => {
         try {
-            // This log will show you exactly what is being sent to the backend.
             console.log("Attempting to migrate valid guest chats:", guestChats);
-
             const token = await getToken();
             const res = await fetch(`${API_URL}/api/chats/migrate-guest`, {
                 method: 'POST',
@@ -100,11 +120,9 @@ const AppContent = () => {
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`,
                 },
-                body: JSON.stringify({ guestChats: guestChats }), // Send the validated and filtered data
+                body: JSON.stringify({ guestChats: guestChats }),
             });
-
             const data = await res.json();
-            
             if (!res.ok) {
                 throw new Error(data.error || data.details || 'Migration failed on the server.');
             }
@@ -113,33 +131,10 @@ const AppContent = () => {
         }
     };
 
-    const handleSignIn = async (shouldMigrate) => {
-        if (!isSignInLoaded) return;
-        
-        if (shouldMigrate) {
-            localStorage.setItem(MIGRATION_PENDING_KEY, 'true');
-        } else {
-            localStorage.removeItem(MIGRATION_PENDING_KEY);
-        }
-
-        try {
-            await signIn.authenticateWithRedirect({
-                strategy: 'oauth_google',
-                redirectUrl: '/sso-callback',
-                redirectUrlComplete: '/',
-            });
-        } catch (err) {
-            console.error("Google Sign-In failed", err);
-            localStorage.removeItem(MIGRATION_PENDING_KEY);
-            addNotification("Sign-in failed. Please try again.", "error");
-        }
-    };
-
     const handleTryOut = () => {
         setIsGuestMode(true);
     };
   
-    // --- THEME PERSISTENCE LOGIC ---
     useEffect(() => {
         const savedTheme = localStorage.getItem('theme');
         const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -150,9 +145,7 @@ const AppContent = () => {
             document.documentElement.classList.remove('dark');
         }
     }, []);
-    // --- END THEME PERSISTENCE ---
 
-    // Centralized data fetching
     useEffect(() => {
         const fetchData = async () => {
             if (userId) {
@@ -213,7 +206,6 @@ const AppContent = () => {
     );
 };
 
-// Main App component that provides the context
 function App() {
     return (
         <NotificationProvider>
