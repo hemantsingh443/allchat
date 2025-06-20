@@ -1152,47 +1152,40 @@ export const migrateGuestChats = (db) => async (req, res) => {
     const { userId } = getAuth(req);
     const { guestChats } = req.body;
 
-    if (!guestChats) {
-        return res.status(400).json({ error: 'Migration request body is missing the "guestChats" property.' });
-    }
-    if (!Array.isArray(guestChats)) {
-        return res.status(400).json({ error: '"guestChats" property must be an array.' });
-    }
-    if (guestChats.length === 0) {
-        return res.status(400).json({ error: '"guestChats" array cannot be empty.' });
+    if (!guestChats || !Array.isArray(guestChats) || guestChats.length === 0) {
+        return res.status(400).json({ error: 'Guest chats data is missing or invalid.' });
     }
 
     try {
-        // Process each chat sequentially for safety
         for (const guestChat of guestChats) {
-            // Validate required fields
             if (!guestChat.title || !guestChat.modelId || !guestChat.createdAt) {
-                console.warn('Skipping invalid guest chat:', guestChat);
+                console.warn('Skipping invalid guest chat object during migration:', guestChat);
                 continue;
             }
 
-            // Step 1: Insert the parent chat record
             const [newChat] = await db.insert(schema.chats).values({
                 userId: userId,
                 title: guestChat.title,
                 modelId: guestChat.modelId,
                 createdAt: new Date(guestChat.createdAt),
-                sourceChatId: null, // Reset branching on migration
-                branchedFromMessageId: null,
             }).returning();
             
-            // Step 2: Insert messages if they exist
             if (guestChat.messages && guestChat.messages.length > 0) {
-                const messagesToInsert = guestChat.messages.map(msg => ({
-                    chatId: newChat.id,
-                    sender: msg.sender,
-                    content: msg.content,
-                    editCount: msg.editCount || 0,
-                    modelId: msg.modelId || guestChat.modelId, // Fallback to chat's modelId
-                    createdAt: new Date(msg.createdAt || guestChat.createdAt), // Fallback to chat's createdAt
-                }));
-                
-                await db.insert(schema.messages).values(messagesToInsert);
+                // FIX: Filter out messages that have no content to prevent DB errors.
+                const validMessagesToInsert = guestChat.messages
+                    .filter(msg => msg.content !== null && msg.content !== undefined && msg.content.trim() !== '')
+                    .map(msg => ({
+                        chatId: newChat.id,
+                        sender: msg.sender,
+                        content: msg.content,
+                        editCount: msg.editCount || 0,
+                        modelId: msg.modelId || guestChat.modelId,
+                        createdAt: new Date(msg.createdAt || guestChat.createdAt),
+                    }));
+
+                if (validMessagesToInsert.length > 0) {
+                    await db.insert(schema.messages).values(validMessagesToInsert);
+                }
             }
         }
 

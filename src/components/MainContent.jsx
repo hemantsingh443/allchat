@@ -390,8 +390,13 @@ const MainContent = () => {
                         const data = JSON.parse(line.slice(6));
                         switch (data.type) {
                             case 'chat_info':
-                                if (data.newChat) { setChats(p => p.find(c => c.id === data.newChat.id) ? p : [data.newChat, ...p]); setActiveChatId(data.newChat.id); }
-                                if (optimisticUserMessageId && data.userMessage) setMessages(prev => prev.map(msg => msg.id === optimisticUserMessageId ? { ...data.userMessage, text: data.userMessage.content } : msg));
+                                if (data.newChat) {
+                                    setChats(prev => prev.map(c => c.id === 'optimistic-chat' ? { ...c, ...data.newChat } : c));
+                                    setActiveChatId(data.newChat.id); 
+                                }
+                                if (optimisticUserMessageId && data.userMessage) {
+                                    setMessages(prev => prev.map(msg => msg.id === optimisticUserMessageId ? { ...data.userMessage, text: data.userMessage.content } : msg));
+                                }
                                 break;
                             case 'content_word':
                                 currentContentAccumulator.content += data.content;
@@ -402,7 +407,10 @@ const MainContent = () => {
                                 setStreamingMessageContent(prev => ({ ...prev, [streamTargetId]: { ...currentContentAccumulator } }));
                                 break;
                             case 'complete':
-                                if (data.aiMessage) setMessages(prev => prev.map(msg => msg.id === streamTargetId ? { ...data.aiMessage, text: data.aiMessage.content, isStreaming: false } : msg));
+                                if (data.aiMessage) {
+                                    const finalAiMsg = { ...data.aiMessage, text: data.aiMessage.content, isStreaming: false };
+                                    setMessages(prev => prev.map(msg => msg.id === streamTargetId ? finalAiMsg : msg));
+                                }
                                 if (onCompleteCallback) onCompleteCallback();
                                 reader.cancel(); return;
                             case 'key_usage':
@@ -523,7 +531,9 @@ const MainContent = () => {
             const optimisticUserMessage = { id: `guest-msg-${Date.now()}`, content: messageContentToSend, text: messageContentToSend, sender: 'user', role: 'user', createdAt: new Date().toISOString() };
             const streamTargetId = `guest-streaming-ai-${Date.now()}`;
             const baseMessages = currentActiveChatId ? messages : [];
-            const placeholderAiMessage = { id: streamTargetId, sender: 'ai', role: 'ai', isStreaming: true, modelId: chatModelId, createdAt: new Date().toISOString() };
+            // FIX: Add content: '' to the placeholder to prevent null values during migration
+            const placeholderAiMessage = { id: streamTargetId, sender: 'ai', role: 'ai', content: '', text: '', isStreaming: true, modelId: chatModelId, createdAt: new Date().toISOString() };
+            
             setMessages([...baseMessages, optimisticUserMessage, placeholderAiMessage]);
             setCurrentMessage('');
             setStreamingMessageContent({ [streamTargetId]: { content: '', reasoning: '' } });
@@ -541,16 +551,26 @@ const MainContent = () => {
         const streamTargetId = `streaming-ai-${Date.now()}`;
         const placeholderAiMessage = { id: streamTargetId, sender: 'ai', role: 'ai', isStreaming: true, modelId: chatModelId, createdAt: new Date().toISOString() };
         const baseMessagesForNewInteraction = currentActiveChatId ? messages : [];
-        setMessages([...baseMessagesForNewInteraction, optimisticUserMessage, placeholderAiMessage]);
+        const newMessages = [...baseMessagesForNewInteraction, optimisticUserMessage, placeholderAiMessage];
+        
+        if (!currentActiveChatId) {
+            const newChat = { id: 'optimistic-chat', title: messageContentToSend.substring(0, 30) || "New Chat", modelId: chatModelId, createdAt: new Date().toISOString(), messages: newMessages };
+            setChats(prev => [newChat, ...prev]);
+            setActiveChatId('optimistic-chat');
+        } else {
+            setChats(prev => prev.map(c => c.id === currentActiveChatId ? { ...c, messages: newMessages } : c));
+        }
+        setMessages(newMessages);
+
         setStreamingMessageContent({ [streamTargetId]: { content: '', reasoning: '' } });
         const messagesForApi = [...baseMessagesForNewInteraction, { role: 'user', content: messageContentToSend }].map(m => ({ role: m.sender || m.role, content: m.content }));
         const onComplete = currentActiveChatId ? () => {} : undefined;
-        handleStreamingRequest('/api/chat/stream', { messages: messagesForApi, chatId: currentActiveChatId, modelId: chatModelId, useWebSearch: isWebSearchEnabled, userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily, fileData: fileForMessagePayload?.base64, fileMimeType: fileForMessagePayload?.mimeType, fileName: fileForMessagePayload?.name, maximizeTokens: maximizeTokens }, streamTargetId, optimisticUserMessage.id, onComplete);
-    }, [currentMessage, selectedFile, isStreaming, activeChat, newChatModelId, activeChatId, isGuest, checkGuestTrial, isWebSearchEnabled, messages, handleRemoveFile, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, setMessages, addNotification, setStreamingMessageContent]);
+        handleStreamingRequest('/api/chat/stream', { messages: messagesForApi, chatId: currentActiveChatId, modelId: chatModelId, useWebSearch: isWebSearchEnabled, userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily, fileData: fileForMessagePayload?.base64, fileMimeType: fileForMessagePayload?.mimeType, fileName: fileForMessagePayload?.name, maximizeTokens }, streamTargetId, optimisticUserMessage.id, onComplete);
+    }, [currentMessage, selectedFile, isStreaming, activeChat, newChatModelId, activeChatId, isGuest, checkGuestTrial, isWebSearchEnabled, messages, handleRemoveFile, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, setMessages, setChats, setActiveChatId, addNotification, setStreamingMessageContent]);
     
     const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
     const toggleTheme = () => { document.documentElement.classList.toggle('dark'); localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light'); };
-
+   
     const handleEditAndResubmit = useCallback((userMessageId, newContent) => {
         const chatModelId = activeChat?.modelId || newChatModelId;
         let originalUserMessage = null;
@@ -675,7 +695,12 @@ const MainContent = () => {
     return (
         <>
             <ImageViewerModal imageUrl={viewingImageUrl} onClose={() => setViewingImageUrl(null)} />
-            <HierarchicalModelSelector isOpen={isModelSelectorOpen} onClose={() => setIsModelSelectorOpen(false)} currentModelId={currentChatModelId} onSelectModel={handleSetSelectedModel} isGuest={isGuest} />
+            <HierarchicalModelSelector 
+                isOpen={isModelSelectorOpen} 
+                onClose={() => setIsModelSelectorOpen(false)} 
+                currentModelId={currentChatModelId} 
+                onSelectModel={handleSetSelectedModel} 
+                isGuest={isGuest}  />
             <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30 relative">
             <header className="flex justify-end items-center p-2 sm:p-4">
                 <div className="flex items-center gap-2 sm:gap-4">

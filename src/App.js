@@ -78,6 +78,25 @@ const AppContent = () => {
         isGuest, chats, stats, activeChatId, memoizedGetToken, 
         getConfirmation, isSidebarOpen, font, messages, isLoadingMessages, isStreaming, streamingMessageContent, handleSignIn
     ]);
+
+    const fetchData = useCallback(async () => {
+        if (userId) {
+            try {
+                const token = await getToken();
+                const [chatsRes, statsRes] = await Promise.all([
+                    fetch(`${API_URL}/api/chats`, { headers: { 'Authorization': `Bearer ${token}` } }),
+                    fetch(`${API_URL}/api/user-stats`, { headers: { 'Authorization': `Bearer ${token}` } })
+                ]);
+                const chatsData = await chatsRes.json();
+                const statsData = await statsRes.json();
+                setChats(Array.isArray(chatsData) ? chatsData : []);
+                setStats(statsData.stats);
+            } catch (error) {
+                console.error("Failed to fetch user data:", error);
+                addNotification("Could not load your data.", "error");
+            }
+        }
+    }, [userId, getToken, addNotification]);
     
     const fetchMessages = useCallback(async (chatIdToFetch) => {
         if (!chatIdToFetch) {
@@ -95,7 +114,6 @@ const AppContent = () => {
             const res = await fetch(`${API_URL}/api/chats/${chatIdToFetch}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (!res.ok) throw new Error(`Failed to fetch messages. Status: ${res.status}`);
             const data = await res.json();
-            // FIX: Removed the redundant JSON.parse. The server now sends the already-parsed object.
             setMessages(data.map(msg => ({ ...msg, text: msg.content })));
         } catch (error) {
             console.error("[FetchMessages] Error for", chatIdToFetch, ":", error);
@@ -117,10 +135,13 @@ const AppContent = () => {
             const token = await getToken();
             const res = await fetch(`${API_URL}/api/chats/migrate-guest`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ guestChats }) });
             if (!res.ok) throw new Error((await res.json()).error || 'Migration failed.');
+            // FIX: After successful migration, re-fetch data to update the UI
+            fetchData(); 
+            localStorage.removeItem(GUEST_STORAGE_KEY);
         } catch (err) {
             addNotification('Failed to migrate guest chats.', 'error');
         }
-    }, [getToken, addNotification]);
+    }, [getToken, addNotification, fetchData]);
 
     useEffect(() => {
         if (isLoaded && userId && localStorage.getItem(MIGRATION_PENDING_KEY) === 'true') {
@@ -131,11 +152,9 @@ const AppContent = () => {
                     if (Array.isArray(guestChats)) {
                         guestChats = guestChats.filter(chat => chat && chat.id && chat.title && chat.modelId && chat.createdAt);
                         if (guestChats.length > 0) migrateGuestData(guestChats);
-                        else localStorage.removeItem(GUEST_STORAGE_KEY);
                     }
                 } catch (e) {
                     console.error("Failed to parse guest data for migration.", e);
-                    localStorage.removeItem(GUEST_STORAGE_KEY);
                 }
             }
             localStorage.removeItem(MIGRATION_PENDING_KEY);
@@ -152,26 +171,8 @@ const AppContent = () => {
     }, []);
 
     useEffect(() => {
-        const fetchData = async () => {
-            if (userId) {
-                try {
-                    const token = await getToken();
-                    const [chatsRes, statsRes] = await Promise.all([
-                        fetch(`${API_URL}/api/chats`, { headers: { 'Authorization': `Bearer ${token}` } }),
-                        fetch(`${API_URL}/api/user-stats`, { headers: { 'Authorization': `Bearer ${token}` } })
-                    ]);
-                    const chatsData = await chatsRes.json();
-                    const statsData = await statsRes.json();
-                    setChats(Array.isArray(chatsData) ? chatsData : []);
-                    setStats(statsData.stats);
-                } catch (error) {
-                    console.error("Failed to fetch user data:", error);
-                    addNotification("Could not load your data.", "error");
-                }
-            }
-        };
         fetchData();
-    }, [userId, getToken, addNotification]);
+    }, [fetchData]);
 
     if (!isLoaded) return <div className="w-screen h-screen bg-gray-100 dark:bg-gray-900" />;
 
