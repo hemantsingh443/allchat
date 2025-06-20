@@ -489,7 +489,7 @@ const MainContent = () => {
     // or when the streaming content object changes (e.g., new token/word arrives).
     }, [messages, streamingMessageContent, isStreaming]);
     
-    const processStream = useCallback(async (response, streamTargetId, optimisticUserMessageId) => {
+    const processStream = useCallback(async (response, streamTargetId, optimisticUserMessageId, onCompleteCallback) => {
         if (!response.ok || !response.body) {
             const errorData = await response.json().catch(() => ({error: 'Streaming request failed with status ' + response.status}));
             console.error("[ProcessStream] Response not OK or no body:", errorData.error);
@@ -500,7 +500,7 @@ const MainContent = () => {
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
-        let currentContentAccumulator = { content: '', reasoning: '' };
+        let currentContentAccumulator = { content: '', reasoning: '', googleThoughts: '' };
         let receivedNewChatInfo = null; 
 
         while (true) {
@@ -573,6 +573,9 @@ const MainContent = () => {
                                         }));
                                     }
                                 }
+                                if (onCompleteCallback) {
+                                    onCompleteCallback();
+                                }
                                 reader.cancel();
                                 return; 
                             case 'key_usage': {
@@ -587,6 +590,13 @@ const MainContent = () => {
                                 console.error("[ProcessStream] Received error event from server:", data.error);
                                 addNotification(`Server error: ${data.error}`, 'error');
                                 throw new Error(data.error);
+                            case 'google_thought_word':
+                                currentContentAccumulator.googleThoughts += data.content;
+                                setStreamingMessageContent(prev => ({
+                                    ...prev,
+                                    [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator }
+                                }));
+                                break;
                         }
                     } catch (e) {
                         console.error('[ProcessStream] Error parsing streaming data line or processing event:', line, e);
@@ -598,10 +608,12 @@ const MainContent = () => {
     }, [setChats, setActiveChatId, addNotification, notifiedChats, messages]);
 
 
-    const handleStreamingRequest = useCallback(async (endpoint, body, streamTargetId, optimisticUserMessageId) => {
+    const handleStreamingRequest = useCallback(async (endpoint, body, streamTargetId, optimisticUserMessageId, onCompleteCallback) => {
         if (body.useWebSearch) setIsSearchingWeb(true);
         if (body.fileMimeType === 'application/pdf') setIsExtractingPDF(true);
-        if (body.fileMimeType?.startsWith('image/')) setIsProcessingImage(true);
+        if (endpoint === '/api/chat/stream' && body.fileMimeType?.startsWith('image/')) {
+            setIsProcessingImage(true);
+        }
 
         try {
             const token = await getToken();
@@ -610,11 +622,14 @@ const MainContent = () => {
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
                 body: JSON.stringify(body),
             });
-            await processStream(response, streamTargetId, optimisticUserMessageId);
+            await processStream(response, streamTargetId, optimisticUserMessageId, onCompleteCallback);
         } catch (error) {
             console.error('[HandleStreamingRequest] Streaming error:', error);
             addNotification(error.message || 'An error occurred during streaming.', 'error');
-            setMessages(prev => prev.filter(m => m.id !== streamTargetId && (optimisticUserMessageId ? m.id !== optimisticUserMessageId : true) ));
+            setMessages(prev => {
+                const newMessages = prev.filter(m => m.id !== streamTargetId);
+                return optimisticUserMessageId ? newMessages.filter(m => m.id !== optimisticUserMessageId) : newMessages;
+            });
         } finally {
             setIsLoading(false);
             setIsStreaming(false);
@@ -651,7 +666,7 @@ const MainContent = () => {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '';
-            let currentContentAccumulator = { content: '', reasoning: '' };
+            let currentContentAccumulator = { content: '', reasoning: '', googleThoughts: '' };
 
             while (true) {
                 const { done, value } = await reader.read();
@@ -678,6 +693,10 @@ const MainContent = () => {
                                 currentContentAccumulator.reasoning += data.content;
                                  setStreamingMessageContent(prev => ({ ...prev, [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator } }));
                             }
+                            if (data.type === 'google_thought_word') {
+                                 currentContentAccumulator.reasoning += data.content; // For guest mode, we can treat them the same
+                                 setStreamingMessageContent(prev => ({ ...prev, [streamTargetId]: { ...prev[streamTargetId], ...currentContentAccumulator } }));
+                            }
                             if (data.type === 'error') throw new Error(data.error);
                         } catch (e) { console.error('[StreamGuestResponse] Error parsing streaming data line:', line, e); }
                     }
@@ -688,6 +707,7 @@ const MainContent = () => {
                 id: streamTargetId, sender: 'ai', role: 'ai',
                 content: currentContentAccumulator.content, text: currentContentAccumulator.content, 
                 reasoning: currentContentAccumulator.reasoning,
+                googleThoughts: currentContentAccumulator.googleThoughts,
                 createdAt: new Date().toISOString(), modelId: modelIdToUse, isStreaming: false
             };
 
@@ -726,47 +746,53 @@ const MainContent = () => {
     }, [addNotification, setChats, setActiveChatId, setMessages]);
 
 
-    const handleEditAndResubmit = useCallback(async (userMessageId, newContent) => {
+    const handleEditAndResubmit = useCallback((userMessageId, newContent) => {
         const currentActiveChatIdVal = activeChatIdRef.current;
         const chatModelId = activeChat?.modelId || newChatModelId;
         let originalUserMessage = null;
-
+        
         const streamTargetId = isGuest ? `guest-streaming-ai-${Date.now()}` : `streaming-ai-${Date.now()}`;
-        const placeholderAiMessage = {
+        let placeholderAiMessage = {
             id: streamTargetId, sender: 'ai', role: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: chatModelId
         };
         
         setMessages(prevMessages => {
             const messageIndex = prevMessages.findIndex(m => m.id === userMessageId);
             if (messageIndex === -1) {
-                console.error("[HandleEditAndResubmit] Original user message not found.");
                 return prevMessages;
             }
             originalUserMessage = prevMessages[messageIndex];
+            const history = prevMessages.slice(0, messageIndex);
             const updatedUserMessageForDisplay = { ...originalUserMessage, content: newContent, text: newContent, editCount: (originalUserMessage.editCount || 0) + 1 };
-            return [...prevMessages.slice(0, messageIndex), updatedUserMessageForDisplay, placeholderAiMessage];
+            return [...history, updatedUserMessageForDisplay, placeholderAiMessage];
+        });
+
+        setStreamingMessageContent({
+            [streamTargetId]: { content: '', reasoning: '', googleThoughts: '' }
         });
 
         if (!originalUserMessage) return;
-
+        
         if (isGuest) {
             if (!checkGuestTrial()) return;
             const history = messages.slice(0, messages.findIndex(m => m.id === userMessageId));
             const messagesForAIGuest = [...history, { ...originalUserMessage, content: newContent }].map(m => ({sender: m.sender || m.role, content: m.content}));
-            await streamGuestResponse(messagesForAIGuest, streamTargetId, chatModelId); 
+            streamGuestResponse(messagesForAIGuest, streamTargetId, chatModelId); 
             return;
         }
             
-        await handleStreamingRequest(
+        handleStreamingRequest(
             '/api/chat/regenerate/stream',
             {
                 messageId: userMessageId, newContent, chatId: currentActiveChatIdVal, modelId: chatModelId,
                 useWebSearch: originalUserMessage.usedWebSearch || false,
                 userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily, maximizeTokens: maximizeTokens,
-            },
-            streamTargetId, userMessageId 
+            }, 
+            streamTargetId, 
+            userMessageId,
+            () => fetchMessages(currentActiveChatIdVal)
         );
-    }, [activeChat, newChatModelId, isGuest, checkGuestTrial, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, setMessages, messages]);
+    }, [activeChat, newChatModelId, isGuest, checkGuestTrial, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, setMessages, messages, fetchMessages]);
 
 
     const handleFileSelect = useCallback((event) => {
@@ -820,16 +846,14 @@ const MainContent = () => {
                 sender: 'user', role: 'user', createdAt: new Date().toISOString()
             };
             const streamTargetId = `guest-streaming-ai-${Date.now()}`;
-            const placeholderAiMessage = {
-                id: streamTargetId, sender: 'ai', role: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: chatModelId
-            };
+            let currentContentAccumulator = { content: '', reasoning: '', googleThoughts: '' };
             
             const baseMessages = currentActiveChatIdVal && chats.find(c=>c.id === currentActiveChatIdVal) ? messages : [];
-            setMessages([...baseMessages, optimisticUserMessage, placeholderAiMessage]);
+            setMessages([...baseMessages, optimisticUserMessage]);
             setCurrentMessage('');
     
             const messagesForGuestAPI = [...baseMessages, optimisticUserMessage].map(m => ({ sender: m.sender || m.role, content: m.content }));
-            await streamGuestResponse(messagesForGuestAPI, streamTargetId, chatModelId);
+            streamGuestResponse(messagesForGuestAPI, streamTargetId, chatModelId);
             return;
         }
     
@@ -839,6 +863,8 @@ const MainContent = () => {
         setCurrentMessage(''); 
         handleRemoveFile(); 
     
+        let currentContentAccumulator = { content: '', reasoning: '', googleThoughts: '' };
+        
         const optimisticUserMessage = {
             id: `temp-user-${Date.now()}`, role: 'user', sender: 'user', content: messageContentToSend, text: messageContentToSend, 
             imageUrl: fileForMessagePayload?.mimeType.startsWith('image/') ? previewUrlForOptimisticMessage : null, 
@@ -847,16 +873,21 @@ const MainContent = () => {
         };
     
         const streamTargetId = `streaming-ai-${Date.now()}`;
-        const placeholderAiMessage = {
-            id: streamTargetId, role: 'ai', sender: 'ai', content: '', text:'', reasoning: '', isStreaming: true, modelId: chatModelId, createdAt: new Date().toISOString()
+        let placeholderAiMessage = {
+            id: streamTargetId, sender: 'ai', role: 'ai', content: '', text:'', reasoning: '', googleThoughts: '', isStreaming: true, modelId: chatModelId, createdAt: new Date().toISOString()
         };
         
         const baseMessagesForNewInteraction = currentActiveChatIdVal ? messages : [];
         setMessages([...baseMessagesForNewInteraction, optimisticUserMessage, placeholderAiMessage]);
         
-        const messagesForApi = [...baseMessagesForNewInteraction, { role: 'user', content: messageContentToSend }].map(m => ({ role: m.role || m.sender, content: m.content }));
+        // The API only needs the history plus the new message
+        const messagesForApi = [...baseMessagesForNewInteraction, { role: 'user', content: messageContentToSend }].map(m => ({ role: m.sender || m.role, content: m.content }));
     
-        await handleStreamingRequest(
+        // For a new chat (activeChatId is null), we don't need a final re-fetch.
+        // For an existing chat, we do.
+        const onComplete = currentActiveChatIdVal ? () => fetchMessages(currentActiveChatIdVal) : null;
+    
+        handleStreamingRequest(
             '/api/chat/stream',
             {
                 messages: messagesForApi, chatId: currentActiveChatIdVal, modelId: chatModelId,
@@ -864,9 +895,10 @@ const MainContent = () => {
                 fileData: fileForMessagePayload?.base64, fileMimeType: fileForMessagePayload?.mimeType,
                 fileName: fileForMessagePayload?.name, maximizeTokens: maximizeTokens,
             },
-            streamTargetId, optimisticUserMessage.id
+            streamTargetId, optimisticUserMessage.id,
+            onComplete
         );
-    }, [currentMessage, selectedFile, isLoading, isStreaming, activeChat, newChatModelId, isGuest, checkGuestTrial, isWebSearchEnabled, chats, messages, handleRemoveFile, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse]);
+    }, [currentMessage, selectedFile, isLoading, isStreaming, activeChatIdRef.current, activeChat, newChatModelId, isGuest, checkGuestTrial, isWebSearchEnabled, chats, messages, handleRemoveFile, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, fetchMessages]);
     
 
     const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
@@ -962,7 +994,8 @@ const MainContent = () => {
                  return prevMessages;
             }
             history = prevMessages.slice(0, aiMessageIndex - 1);
-            const placeholderAiMessage = { id: streamTargetId, sender: 'ai', role: 'ai', content: '', text: '', reasoning: '', isStreaming: true, modelId: modelToUse };
+            let currentContentAccumulator = { content: '', reasoning: '', googleThoughts: '' };
+            const placeholderAiMessage = { id: streamTargetId, sender: 'ai', role: 'ai', content: '', text: '', reasoning: '', googleThoughts: '', isStreaming: true, modelId: modelToUse };
             return [...history, userPromptMessage, placeholderAiMessage];
         });
 
@@ -984,7 +1017,8 @@ const MainContent = () => {
                     useWebSearch: userPromptMessage.usedWebSearch || false,
                     userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily, maximizeTokens: maximizeTokens,
                 },
-                streamTargetId, userPromptMessage.id
+                streamTargetId, userPromptMessage.id,
+                () => fetchMessages(activeChatIdRef.current)
             );
         }, 0);
     }, [activeChat, newChatModelId, isGuest, checkGuestTrial, userKeys, maximizeTokens, streamGuestResponse, handleStreamingRequest, setMessages]);
@@ -1127,12 +1161,13 @@ const MainContent = () => {
                          const isMessageStreaming = !!streamingData || msg.isStreaming;
 
                          const text = streamingData?.content !== undefined ? streamingData.content : (msg.text || msg.content);
-                         const reasoning = streamingData?.reasoning !== undefined ? streamingData.reasoning : msg.reasoning;
+                         const reasoning = streamingData?.reasoning !== undefined ? streamingData.reasoning : (streamingData?.googleThoughts || msg.reasoning);
                         
                         return (
                             <ChatMessage
                                 key={msg.id}
                                 id={msg.id}
+                                streamingData={streamingData}
                                 sender={msg.sender}
                                 editCount={msg.editCount}
                                 imageUrl={msg.imageUrl}

@@ -595,25 +595,47 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
         const isGoogleModel = modelId.startsWith('google/');
 
         if (isGoogleModel) {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+            const googleThinkingModels = ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-flash-lite-preview-06-17'];
+            const isThinkingModel = googleThinkingModels.includes(modelId);
             
-            // Format history for Google's API
+            // Use the modelId from the request, removing the 'google/' prefix for the SDK
+            const model = genAI.getGenerativeModel({ model: modelId.replace('google/', '') });
+
             const formattedHistory = history.map(msg => ({
                 role: msg.role === 'user' ? 'user' : 'model',
                 parts: [{ text: msg.content }]
             }));
             
-            // Use startChat to include conversation history
-            const chat = model.startChat({ history: formattedHistory });
-            const result = await chat.sendMessage(finalPrompt);
-            
-            aiResponseContent = result.response.text();
+            const generationConfig = {};
+            if (isThinkingModel) {
+                generationConfig.thinkingConfig = {
+                    includeThoughts: true,
+                    thinkingBudget: -1, // Use dynamic thinking
+                };
+            }
 
-            res.json({ 
-                content: aiResponseContent,
-                reasoning: null
-            });
-            return;
+            const promptParts = [{ text: finalPrompt }];
+            if (imageDataForAI && fileMimeType.startsWith('image/')) {
+                promptParts.push({ inlineData: { data: imageDataForAI, mimeType: fileMimeType } });
+            }
+
+            const chat = model.startChat({ history: formattedHistory, generationConfig });
+            const result = await chat.sendMessageStream(promptParts);
+            
+            for await (const chunk of result.stream) {
+                for (const part of (chunk.candidates?.[0]?.content?.parts || [])) {
+                    if (part.thought) {
+                        // This is a thought part. The content is in part.text.
+                        reasoningData += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: part.text })}\n\n`);
+                    } else if (part.text) {
+                        // This is a regular content part.
+                        aiResponseContent += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: part.text })}\n\n`);
+                    }
+                }
+            }
+
         } else { 
             const { apiKey: apiKeyToUse } = determineApiDetails(modelId, userApiKey, process.env.OPENROUTER_API_KEY);
 
@@ -765,16 +787,47 @@ export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
         const isGoogleModel = modelId.startsWith('google/');
 
         if (isGoogleModel) {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-            const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
+            const googleThinkingModels = ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-flash-lite-preview-06-17'];
+            const isThinkingModel = googleThinkingModels.includes(modelId);
+
+            // Use the modelId from the request, removing the 'google/' prefix for the SDK
+            const model = genAI.getGenerativeModel({ model: modelId.replace('google/', '') });
+
+            const generationConfig = {};
+            if (isThinkingModel) {
+                generationConfig.thinkingConfig = {
+                    includeThoughts: true,
+                    thinkingBudget: -1, // Use dynamic thinking
+                };
+            }
+
+            const formattedHistory = history.map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'model',
+                parts: [{ text: msg.content }]
+            }));
             
-            // Include search results in the prompt if available
-            const promptWithSearch = searchResults 
-                ? `Here are some relevant search results to help answer the query:\n\n${JSON.stringify(searchResults, null, 2)}\n\nQuery: ${finalPromptContent}`
-                : finalPromptContent;
+            const promptParts = [{ text: finalPrompt }];
+            if (imageDataForAI && fileMimeType.startsWith('image/')) {
+                promptParts.push({ inlineData: { data: imageDataForAI, mimeType: fileMimeType } });
+            }
             
-            const result = await chat.sendMessage(promptWithSearch);
-            aiResponseContent = result.response.text();
+            const chat = model.startChat({ history: formatGoogleMessages(historyForAI), generationConfig });
+            const result = await chat.sendMessageStream(promptParts);
+            
+            for await (const chunk of result.stream) {
+                for (const part of (chunk.candidates?.[0]?.content?.parts || [])) {
+                    if (part.thought) {
+                        // This is a thought part. The content is in part.text.
+                        reasoningData += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: part.text })}\n\n`);
+                    } else if (part.text) {
+                        // This is a regular content part.
+                        aiResponseContent += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: part.text })}\n\n`);
+                    }
+                }
+            }
+
         } else {
             // Modified logic to select the correct API key
             const { apiKey: apiKeyToUse, usedServerKey } = determineApiDetails(modelId, userApiKey, process.env.OPENROUTER_API_KEY);
@@ -887,7 +940,7 @@ export const handleGuestChat = (genAI) => async (req, res) => {
             }));
             
             // Use startChat to include conversation history
-            const chat = model.startChat({ history: formattedHistory });
+            const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
             const result = await chat.sendMessage(lastUserMessage.content);
             
             const aiResponseContent = result.response.text();
@@ -995,7 +1048,7 @@ export const handleGuestChatStreaming = (genAI) => async (req, res) => {
             }));
             
             // Use startChat to include conversation history
-            const chat = model.startChat({ history: formattedHistory });
+            const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
             const result = await chat.sendMessageStream(lastUserMessage.content);
             
             for await (const chunk of result.stream) {
@@ -1063,7 +1116,7 @@ export const handleGuestChatStreaming = (genAI) => async (req, res) => {
                                 res.write(`data: ${JSON.stringify({ type: 'content_word', content: choice.delta.content })}\n\n`);
                             }
                             if (choice.delta?.reasoning) {
-                                res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
+                                res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: choice.delta.reasoning })}\n\n`);
                             }
                         }
                     } catch (e) {
@@ -1278,7 +1331,19 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         let aiResponseContent = '';
 
         if (isGoogleModel) {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+            const googleThinkingModels = ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-flash-lite-preview-06-17'];
+            const isThinkingModel = googleThinkingModels.includes(modelId);
+
+            // Use the modelId from the request, removing the 'google/' prefix for the SDK
+            const model = genAI.getGenerativeModel({ model: modelId.replace('google/', '') });
+
+            const generationConfig = {};
+            if (isThinkingModel) {
+                generationConfig.thinkingConfig = {
+                    includeThoughts: true,
+                    thinkingBudget: -1, // Use dynamic thinking
+                };
+            }
             
             const formattedHistory = history.map(msg => ({
                 role: msg.role === 'user' ? 'user' : 'model',
@@ -1290,14 +1355,20 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                 promptParts.push({ inlineData: { data: imageDataForAI, mimeType: fileMimeType } });
             }
             
-            const chat = model.startChat({ history: formattedHistory });
+            const chat = model.startChat({ history: formatGoogleMessages(history), generationConfig });
             const result = await chat.sendMessageStream(promptParts);
             
             for await (const chunk of result.stream) {
-                const chunkText = chunk.text();
-                if (chunkText) {
-                    aiResponseContent += chunkText;
-                    res.write(`data: ${JSON.stringify({ type: 'content_word', content: chunkText })}\n\n`);
+                for (const part of (chunk.candidates?.[0]?.content?.parts || [])) {
+                    if (part.thought) {
+                        // This is a thought part. The content is in part.text.
+                        reasoningData += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: part.text })}\n\n`);
+                    } else if (part.text) {
+                        // This is a regular content part.
+                        aiResponseContent += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: part.text })}\n\n`);
+                    }
                 }
             }
 
@@ -1361,7 +1432,7 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                                         }
                                         if (choice.delta?.reasoning) {
                                             reasoningData += choice.delta.reasoning;
-                                            res.write(`data: ${JSON.stringify({ type: 'reasoning_word', content: choice.delta.reasoning })}\n\n`);
+                                            res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: choice.delta.reasoning })}\n\n`);
                                         }
                                     }
                                 } catch (e) { console.error('Error parsing streaming data line:', line, e); }
@@ -1373,12 +1444,14 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
                         try {
                             const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
                             const [aiMessage] = await db.insert(schema.messages).values({ 
-                                chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId,
+                                chatId: currentChatId, 
+                                sender: 'ai', 
+                                content: aiResponseContent, 
+                                modelId,
                                 searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
                                 reasoning: reasoningData || null
                             }).returning();
-
-                            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: reasoningData || null }})}\n\n`);
+                            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: reasoningData || null } })}\n\n`);
                             res.end();
                             resolve();
                         } catch (dbError) { reject(dbError); }
@@ -1395,12 +1468,15 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         if (isGoogleModel) {
             const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
             const [aiMessage] = await db.insert(schema.messages).values({ 
-                chatId: currentChatId, sender: 'ai', content: aiResponseContent, modelId,
+                chatId: currentChatId, 
+                sender: 'ai', 
+                content: aiResponseContent, 
+                modelId,
                 searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null,
-                reasoning: null
+                reasoning: reasoningData || null
             }).returning();
 
-            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: null } })}\n\n`);
+            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...aiMessage, searchResults, reasoning: reasoningData || null } })}\n\n`);
             res.end();
             return;
         }
@@ -1411,6 +1487,8 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         res.end();
     }
 };
+
+// src/controllers/chatController.js
 
 export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);
@@ -1448,12 +1526,15 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
             gt(schema.messages.id, updatedUserMessage.id)
         ));
         
+        // The history is fetched and stored in `historyForAI`.
         const historyForAI = await db.query.messages.findMany({
             where: and(eq(schema.messages.chatId, chatId), lt(schema.messages.id, updatedUserMessage.id)),
             orderBy: [asc(schema.messages.id)],
         });
 
         let searchResults = null;
+        let searchQueries = null;
+        // The prompt content is stored in `finalPromptContent`.
         let finalPromptContent = newContent || 'Please analyze this image and provide a detailed description.';
         
         if (req.body.useWebSearch) {
@@ -1467,6 +1548,7 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
             
             const searchResponse = await tavily.search(searchQuery, { maxResults: 5 });
             searchResults = searchResponse.results;
+            searchQueries = searchResponse.query_suggestions;
             const contextText = searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
             finalPromptContent = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${finalPromptContent}"`;
         }
@@ -1487,8 +1569,20 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
         const isGoogleModel = modelId.startsWith('google/');
 
         if (isGoogleModel) {
-            const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-            const chat = model.startChat({ history: formatGoogleMessages(historyForAI) });
+            const googleThinkingModels = ['google/gemini-2.5-pro', 'google/gemini-2.5-flash', 'google/gemini-2.5-flash-lite-preview-06-17'];
+            const isThinkingModel = googleThinkingModels.includes(modelId);
+            const model = genAI.getGenerativeModel({ model: modelId.replace('google/', '') });
+
+            const generationConfig = {};
+            if (isThinkingModel) {
+                generationConfig.thinkingConfig = {
+                    includeThoughts: true,
+                    thinkingBudget: -1, 
+                };
+            }
+            
+            // FIX #1: Using the correct `historyForAI` variable here, not `history`.
+            const chat = model.startChat({ history: formatGoogleMessages(historyForAI), generationConfig });
             let streamInput;
             if (imageDataForAI && updatedUserMessage.fileType) {
                 streamInput = [ { text: finalPromptContent }, { inlineData: { data: imageDataForAI, mimeType: updatedUserMessage.fileType } } ];
@@ -1497,14 +1591,21 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
             }
             const result = await chat.sendMessageStream(streamInput);
             for await (const chunk of result.stream) {
-                const chunkText = chunk.text();
-                if (chunkText) {
-                    aiResponseContent += chunkText;
-                    res.write(`data: ${JSON.stringify({ type: 'content_word', content: chunkText })}\n\n`);
+                for (const part of (chunk.candidates?.[0]?.content?.parts || [])) {
+                    if (part.thought) {
+                        reasoningData += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'google_thought_word', content: part.text })}\n\n`);
+                    } else if (part.text) {
+                        aiResponseContent += part.text;
+                        res.write(`data: ${JSON.stringify({ type: 'content_word', content: part.text })}\n\n`);
+                    }
                 }
             }
-            const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: searchResults ? JSON.stringify(searchResults) : null, reasoning: null }).returning();
-            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: null } })}\n\n`);
+            
+            const finalSearchResults = searchResults ? { results: searchResults, queries: searchQueries } : null;
+            const [newAiMessage] = await db.insert(schema.messages).values({ chatId, sender: 'ai', content: aiResponseContent, modelId, searchResults: finalSearchResults ? JSON.stringify(finalSearchResults) : null, reasoning: reasoningData || null }).returning();
+
+            res.write(`data: ${JSON.stringify({ type: 'complete', aiMessage: { ...newAiMessage, searchResults, reasoning: reasoningData || null } })}\n\n`);
             res.end();
             return;
         } else {
@@ -1530,6 +1631,7 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                             include_reasoning: modelId === 'deepseek/deepseek-r1:free', stream: true,
                             max_tokens: calculateMaxTokens({
                                 isGuest: !userId, modelId, hasUserKey: !!userApiKey,
+                                // FIX #2: Using the correct `finalPromptContent` variable here, not `finalPrompt`.
                                 messageLength: finalPromptContent.length, isStreaming: true,
                                 useWebSearch: req.body.useWebSearch || false,
                                 maximizeTokens: req.body.maximizeTokens || false
@@ -1587,7 +1689,6 @@ export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, re
                 }
             });
         }
-
     } catch (error) {
         console.error('Error in streaming regeneration:', error);
         res.write(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`);

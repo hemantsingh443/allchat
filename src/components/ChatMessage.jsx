@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import React, { useState, useEffect, useRef } from 'react';
+import { motion, AnimatePresence, stagger } from 'framer-motion';
 import GlassPanel from './GlassPanel';
-import { User, Sparkles, Pencil, Check, X, Trash2, Globe, ChevronDown, GitBranch, Brain, Eye, Code, Copy, Maximize2, Edit, FileText, Search, ExternalLink, Link as LinkIcon, Youtube } from 'lucide-react';
+import { User, Sparkles, Pencil, Check, X, Trash2, Globe, ChevronDown, GitBranch, Brain, Eye, Code, Copy, Maximize2, Edit, FileText, Search, ExternalLink, Link as LinkIcon, Youtube, Wand2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
@@ -10,6 +10,7 @@ import { allModels } from '../data/models';
 import 'katex/dist/katex.min.css';
 import { InlineMath, BlockMath } from 'react-katex';
 import ActionTooltip from './ActionTooltip';
+import { CapabilityIcons } from './CapabilityIcons';
 
 // ====================================================================
 // Simplified Search Result Components (No changes needed here)
@@ -246,20 +247,124 @@ const LaTeXRenderer = ({ children, display = false }) => {
     }
 };
 
-// Inline CapabilityIcons for model badges
-const CapabilityIcons = ({ capabilities = {}, size = 14 }) => (
-    <div className="flex items-center gap-1.5 text-slate-400">
-        {capabilities?.vision && <Eye size={size} className="text-green-400" title="Vision" />}
-        {capabilities?.reasoning && <Brain size={size} className="text-purple-400" title="Reasoning" />}
-        {capabilities?.code && <Code size={size} className="text-orange-400" title="Code" />}
-    </div>
-);
-
 const LanguageLabel = ({ language }) => (
     <div className="absolute top-0 left-3 text-xs font-semibold text-slate-400 dark:text-slate-500 bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-sm px-2 py-0.5 rounded-b-md border border-t-0 border-slate-200 dark:border-slate-700">
         {language}
     </div>
 );
+
+const LiveThoughtsAnimation = ({ streamingThoughts }) => {
+    const [fragments, setFragments] = useState([]);
+    const prevThoughtsRef = useRef('');
+
+    useEffect(() => {
+        // Only act if the thoughts string has actually grown
+        if (streamingThoughts && streamingThoughts.length > prevThoughtsRef.current.length) {
+            const newText = streamingThoughts.slice(prevThoughtsRef.current.length);
+
+            if (newText) {
+                const newFragment = { id: Date.now(), text: newText };
+                setFragments(prev => [...prev, newFragment]);
+
+                // Schedule the fragment to be removed, creating the fade-out effect
+                setTimeout(() => {
+                    setFragments(prev => prev.filter(f => f.id !== newFragment.id));
+                }, 2500);
+            }
+        }
+        prevThoughtsRef.current = streamingThoughts || '';
+    }, [streamingThoughts]);
+
+    return (
+        <div className="mb-3 w-full h-12 relative overflow-hidden flex items-center border-l-2 border-indigo-400 pl-3">
+            <div className="flex items-center gap-3 text-indigo-500 dark:text-indigo-400 flex-shrink-0 self-start mt-3">
+                <Wand2 size={16} />
+                <span className="font-medium text-sm">Thinking...</span>
+            </div>
+            <div className="relative h-full flex-1 flex flex-col-reverse items-start">
+                <AnimatePresence initial={false}>
+                    {fragments.map((fragment) => (
+                        <motion.p
+                            key={fragment.id}
+                            layout // This is the key to the smooth re-ordering animation
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -20, transition: { duration: 0.5 } }}
+                            transition={{ type: 'spring', stiffness: 260, damping: 25 }}
+                            className="w-full text-sm text-slate-500 dark:text-gray-400 truncate"
+                        >
+                            {fragment.text}
+                        </motion.p>
+                    ))}
+                </AnimatePresence>
+            </div>
+        </div>
+    );
+};
+
+const ToggledThoughtsDisplay = ({ thoughts }) => {
+    const [isOpen, setIsOpen] = useState(false);
+
+    if (!thoughts) return null;
+
+    return (
+        <div className="mb-3 w-full">
+            <button 
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex items-center gap-2 px-2.5 py-1.5 border border-indigo-200 dark:border-indigo-700/80 rounded-lg text-xs text-indigo-600 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 transition-colors"
+            >
+                <Wand2 size={14} />
+                <span>View thought process</span>
+                <ChevronDown size={14} className={`transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`} />
+            </button>
+            <AnimatePresence>
+                {isOpen && (
+                    <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.3, ease: "easeInOut" }} className="overflow-hidden">
+                        <div className="mt-2 prose prose-sm prose-slate dark:prose-invert max-w-none text-slate-600 dark:text-slate-300 p-3 bg-slate-50 dark:bg-slate-800/30 rounded-lg border border-slate-200 dark:border-slate-700/50">
+                            <ReactMarkdown>{thoughts}</ReactMarkdown>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
+};
+
+const GoogleThinkingUI = ({ isStreaming, thoughts }) => {
+    if (!thoughts && !isStreaming) return null;
+    if (isStreaming && thoughts) {
+        return <LiveThoughtsAnimation streamingThoughts={thoughts} />;
+    }
+    if (!isStreaming && thoughts) {
+        return <ToggledThoughtsDisplay thoughts={thoughts} />;
+    }
+    return null;
+};
+
+const DeepSeekReasoningDisplay = ({ reasoning }) => {
+    const [isOpen, setIsOpen] = useState(true);
+
+    if (!reasoning) return null;
+
+    return (
+        <div className="mb-3 w-full">
+            <button
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex items-center gap-2 px-2 py-0.5 border border-slate-300 dark:border-slate-600 rounded-md text-xs text-slate-500 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            >
+                <span>Reasoning</span>
+                <motion.div animate={{ rotate: isOpen ? 0 : -90 }} transition={{ duration: 0.2 }}>
+                    <ChevronDown size={14} />
+                </motion.div>
+            </button>
+            <motion.div initial={false} animate={{ height: isOpen ? 'auto' : 0, opacity: isOpen ? 1 : 0, marginTop: isOpen ? '0.5rem' : '0rem' }} transition={{ duration: 0.25, ease: "easeInOut" }} className="overflow-hidden">
+                 <div className="prose prose-xs prose-slate dark:prose-invert max-w-none text-slate-600 dark:text-slate-400 px-2 py-1 bg-slate-50 dark:bg-slate-800/30 rounded-md border border-slate-200 dark:border-slate-700/50">
+                    <ReactMarkdown>{reasoning}</ReactMarkdown>
+                </div>
+            </motion.div>
+        </div>
+    );
+};
 
 const ChatMessage = React.memo(({
     id, text, sender, editCount, imageUrl, usedWebSearch, modelId,
@@ -279,11 +384,14 @@ const ChatMessage = React.memo(({
 
     const modelDetails = allModels.find(m => m.id === modelId);
     const isAI = sender === 'ai';
+    const streamingData = reasoning?.trim() || null;
+    const finalReasoning = reasoning?.trim() || null;
+    const googleThoughts = isAI && modelId?.startsWith('google/') ? (streamingData?.googleThoughts || finalReasoning) : null;
+    const deepSeekReasoning = isAI && !modelId?.startsWith('google/') ? (streamingData?.reasoning || finalReasoning) : null;
     const hasSearchResults = isAI && searchResults && (
         (searchResults.results && searchResults.results.length > 0) || 
         (Array.isArray(searchResults) && searchResults.length > 0)
     );
-    const hasReasoning = isAI && reasoning && reasoning.trim() !== '';
 
     // Detect current theme
     const isDarkMode = () => {
@@ -396,38 +504,9 @@ const ChatMessage = React.memo(({
             )}
 
             <div className={`group relative max-w-2xl ${isUser ? 'flex flex-col items-end' : 'w-full flex flex-col items-start'}`}>
-                {!isUser && hasReasoning && (
-                    <div className="mb-3 w-full">
-                        <button
-                            onClick={() => setShowReasoning(!showReasoning)}
-                            className="flex items-center gap-2 px-2 py-0.5 border border-slate-300 dark:border-slate-600 rounded-md text-xs text-slate-500 dark:text-gray-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                        >
-                            <span>Reasoning</span>
-                            <motion.div
-                                animate={{ rotate: showReasoning ? 0 : -90 }}
-                                transition={{ duration: 0.2 }}
-                            >
-                                <ChevronDown size={14} />
-                            </motion.div>
-                        </button>
-                        <motion.div
-                            initial={false}
-                            animate={{
-                                height: showReasoning ? 'auto' : 0,
-                                opacity: showReasoning ? 1 : 0,
-                                marginTop: showReasoning ? '0.5rem' : '0rem'
-                            }}
-                            transition={{ duration: 0.25, ease: "easeInOut" }}
-                            className="overflow-hidden"
-                        >
-                             <div className="prose prose-xs prose-slate dark:prose-invert max-w-none text-slate-600 dark:text-slate-400 px-2 py-1 bg-slate-50 dark:bg-slate-800/30 rounded-md border border-slate-200 dark:border-slate-700/50">
-                                <ReactMarkdown>
-                                    {reasoning}
-                                </ReactMarkdown>
-                            </div>
-                        </motion.div>
-                    </div>
-                )}
+                {/* Reasoning blocks appear BEFORE the main response */}
+                <GoogleThinkingUI isStreaming={isStreaming} thoughts={googleThoughts} />
+                {deepSeekReasoning && <DeepSeekReasoningDisplay reasoning={deepSeekReasoning} />}
                 
                 {(imageUrl || (fileName && fileType === 'application/pdf')) && !isEditing && (
                     <div className="mb-2">
