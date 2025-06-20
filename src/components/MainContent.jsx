@@ -22,7 +22,6 @@ const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 const GUEST_TRIAL_LIMIT = 8;
 const GUEST_TRIAL_COUNT_KEY = 'allchat-guest-trials';
 
-// ... (WelcomeScreen, AttachmentPreview, etc. remain unchanged) ...
 const WelcomeScreen = ({ onSuggestionClick, user }) => {
     const greeting = user?.firstName ? `How can I help you, ${user.firstName}?` : "How can I help you?";
 
@@ -272,7 +271,8 @@ const CustomTooltip = ({ children, text, isGuest }) => {
 const MainContent = () => {
     const { 
         chats, setChats, activeChatId, setActiveChatId, getToken, getConfirmation, 
-        isGuest, handleSignIn, messages, setMessages, isLoadingMessages 
+        isGuest, handleSignIn, messages, setMessages, isLoadingMessages,
+        isStreaming, setIsStreaming, streamingMessageContent, setStreamingMessageContent
     } = useAppContext();
     
     const { userKeys, maximizeTokens } = useApiKeys();
@@ -290,9 +290,7 @@ const MainContent = () => {
     const [viewingImageUrl, setViewingImageUrl] = useState(null);
     const [isExtractingPDF, setIsExtractingPDF] = useState(false);
     const [isProcessingImage, setIsProcessingImage] = useState(false);
-    const [isStreaming, setIsStreaming] = useState(false);
     const [notifiedChats, setNotifiedChats] = useState(new Set());
-    const [streamingMessageContent, setStreamingMessageContent] = useState({});
     
     const fileInputRef = useRef(null);
     const chatContainerRef = useRef(null);
@@ -341,9 +339,7 @@ const MainContent = () => {
     }, [guestTrials, addNotification, handleSignIn]);
 
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
-    
     const currentChatModelId = useMemo(() => activeChat?.modelId || newChatModelId, [activeChat, newChatModelId]);
-    
     const currentModelDetails = allModels.find(m => m.id === currentChatModelId);
     const needsUserKey = currentModelDetails && !currentModelDetails.id.startsWith('google/') && !currentModelDetails.isFree;
     const hasUserKey = !!userKeys.openrouter;
@@ -376,10 +372,7 @@ const MainContent = () => {
     }, [messages, streamingMessageContent, isStreaming]);
     
     const processStream = useCallback(async (response, streamTargetId, optimisticUserMessageId, onCompleteCallback) => {
-        if (!response.ok || !response.body) {
-            const errorData = await response.json().catch(() => ({error: 'Streaming request failed'}));
-            throw new Error(errorData.error || 'Streaming request failed');
-        }
+        if (!response.ok || !response.body) throw new Error((await response.json().catch(() => ({}))).error || 'Streaming request failed');
         const reader = response.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
@@ -397,10 +390,7 @@ const MainContent = () => {
                         const data = JSON.parse(line.slice(6));
                         switch (data.type) {
                             case 'chat_info':
-                                if (data.newChat) {
-                                    setChats(p => p.find(c => c.id === data.newChat.id) ? p : [data.newChat, ...p]);
-                                    setActiveChatId(data.newChat.id); 
-                                }
+                                if (data.newChat) { setChats(p => p.find(c => c.id === data.newChat.id) ? p : [data.newChat, ...p]); setActiveChatId(data.newChat.id); }
                                 if (optimisticUserMessageId && data.userMessage) setMessages(prev => prev.map(msg => msg.id === optimisticUserMessageId ? { ...data.userMessage, text: data.userMessage.content } : msg));
                                 break;
                             case 'content_word':
@@ -426,7 +416,7 @@ const MainContent = () => {
                 }
             }
         }
-    }, [setChats, setActiveChatId, addNotification, notifiedChats, activeChatId, setMessages]);
+    }, [setChats, setActiveChatId, addNotification, notifiedChats, activeChatId, setMessages, setStreamingMessageContent]);
 
     const handleStreamingRequest = useCallback(async (endpoint, body, streamTargetId, optimisticUserMessageId, onCompleteCallback) => {
         if (body.useWebSearch) setIsSearchingWeb(true);
@@ -446,7 +436,7 @@ const MainContent = () => {
             setIsSearchingWeb(false); setIsExtractingPDF(false); setIsProcessingImage(false);
             setStreamingMessageContent(prev => { const { [streamTargetId]: _, ...rest } = prev; return rest; });
         }
-    }, [getToken, addNotification, processStream, setMessages]); 
+    }, [getToken, addNotification, processStream, setMessages, setIsStreaming, setStreamingMessageContent]); 
 
     const streamGuestResponse = useCallback(async (messagesForAI, streamTargetId, modelIdToUse, currentLocalChatId) => {
         setIsStreaming(true);
@@ -498,7 +488,7 @@ const MainContent = () => {
             setIsStreaming(false);
             setStreamingMessageContent(prev => { const { [streamTargetId]: _, ...rest } = prev; return rest; });
         }
-    }, [addNotification, setChats, setActiveChatId, setMessages]);
+    }, [addNotification, setChats, setActiveChatId, setMessages, setIsStreaming, setStreamingMessageContent]);
 
     const handleFileSelect = useCallback((event) => {
         const file = event.target.files[0];
@@ -556,7 +546,7 @@ const MainContent = () => {
         const messagesForApi = [...baseMessagesForNewInteraction, { role: 'user', content: messageContentToSend }].map(m => ({ role: m.sender || m.role, content: m.content }));
         const onComplete = currentActiveChatId ? () => {} : undefined;
         handleStreamingRequest('/api/chat/stream', { messages: messagesForApi, chatId: currentActiveChatId, modelId: chatModelId, useWebSearch: isWebSearchEnabled, userApiKey: userKeys.openrouter, userTavilyKey: userKeys.tavily, fileData: fileForMessagePayload?.base64, fileMimeType: fileForMessagePayload?.mimeType, fileName: fileForMessagePayload?.name, maximizeTokens: maximizeTokens }, streamTargetId, optimisticUserMessage.id, onComplete);
-    }, [currentMessage, selectedFile, isStreaming, activeChat, newChatModelId, activeChatId, isGuest, checkGuestTrial, isWebSearchEnabled, messages, handleRemoveFile, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, setMessages, addNotification]);
+    }, [currentMessage, selectedFile, isStreaming, activeChat, newChatModelId, activeChatId, isGuest, checkGuestTrial, isWebSearchEnabled, messages, handleRemoveFile, userKeys, maximizeTokens, handleStreamingRequest, streamGuestResponse, setMessages, addNotification, setStreamingMessageContent]);
     
     const handleKeyDown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSendMessage(); } };
     const toggleTheme = () => { document.documentElement.classList.toggle('dark'); localStorage.setItem('theme', document.documentElement.classList.contains('dark') ? 'dark' : 'light'); };
@@ -685,13 +675,7 @@ const MainContent = () => {
     return (
         <>
             <ImageViewerModal imageUrl={viewingImageUrl} onClose={() => setViewingImageUrl(null)} />
-            <HierarchicalModelSelector 
-                isOpen={isModelSelectorOpen} 
-                onClose={() => setIsModelSelectorOpen(false)} 
-                currentModelId={currentChatModelId} 
-                onSelectModel={handleSetSelectedModel} 
-                isGuest={isGuest} 
-            />
+            <HierarchicalModelSelector isOpen={isModelSelectorOpen} onClose={() => setIsModelSelectorOpen(false)} currentModelId={currentChatModelId} onSelectModel={handleSetSelectedModel} isGuest={isGuest} />
             <div className="flex-1 flex flex-col h-full bg-white/50 dark:bg-black/30 relative">
             <header className="flex justify-end items-center p-2 sm:p-4">
                 <div className="flex items-center gap-2 sm:gap-4">

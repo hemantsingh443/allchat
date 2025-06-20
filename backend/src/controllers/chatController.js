@@ -911,7 +911,8 @@ export const handleGuestChat = (genAI) => async (req, res) => {
         'google/gemini-1.5-flash-latest',
         'google/gemini-pro-1.5',
         'mistralai/mistral-7b-instruct:free',
-        'mistralai/devstral-small:free'
+        'mistralai/devstral-small:free',
+        'nousresearch/hermes-3-llama-3.1-70b'
     ];
     
     if (!freeModels.includes(modelId)) {
@@ -1014,7 +1015,8 @@ export const handleGuestChatStreaming = (genAI) => async (req, res) => {
         'google/gemini-1.5-flash-latest',
         'google/gemini-pro-1.5',
         'mistralai/mistral-7b-instruct:free',
-        'mistralai/devstral-small:free'
+        'mistralai/devstral-small:free',
+        'nousresearch/hermes-3-llama-3.1-70b'
     ];
     
     if (!freeModels.includes(modelId)) {
@@ -1209,6 +1211,36 @@ export const migrateGuestChats = (db) => async (req, res) => {
     }
 };
 
+// ====================================================================
+// SMART SEARCH SUGGESTIONS (AI-ASSISTED)
+// ====================================================================
+// Gemini-based search suggestion generator
+const generateSearchSuggestions = async (tavilyClient, query, genAI) => {
+    try {
+        const context = await tavilyClient.search(query, { searchDepth: "basic", maxResults: 3 });
+        const contextString = JSON.stringify(context.results.map(r => ({ title: r.title, content: r.content.substring(0, 150) })));
+        
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-pro-latest" });
+        const prompt = `You are an expert research assistant. Based on the user's initial query and the provided search context, generate 3-5 concise, insightful, and actionable search queries that anticipate the user's next steps. Focus on follow-up questions, comparing concepts, or exploring related topics.
+        
+        Initial Query: "${query}"
+        Search Context: ${contextString}
+
+        Return ONLY a valid JSON array of strings. Example: ["How does X compare to Y?", "What are the applications of Z?"]`;
+        
+        const result = await model.generateContent(prompt);
+        const response = result.response;
+        const suggestionsText = response.text().replace(/```json\n?/, '').replace(/```$/, '');
+        const suggestions = JSON.parse(suggestionsText);
+        
+        return Array.isArray(suggestions) ? suggestions.filter(s => typeof s === 'string') : [];
+
+    } catch (error) {
+        console.error("Error generating search suggestions with Gemini:", error);
+        return []; // Return empty array on failure
+    }
+};
+
 export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);
     const { messages, chatId, modelId, useWebSearch, fileData, fileMimeType, fileName, userApiKey, userTavilyKey, maximizeTokens } = req.body;
@@ -1293,13 +1325,15 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
             }
 
             const activeTavily = userTavilyKey ? new tavily(userTavilyKey) : tavily;
-            const searchResponse = await activeTavily.search(searchQuery, { 
-                maxResults: 5,
-                searchDepth: "advanced"
-            });
+            // --- SMART SUGGESTIONS: Use Promise.all to get both search results and suggestions ---
+            const [searchResponse, suggestions] = await Promise.all([
+                activeTavily.search(searchQuery, { maxResults: 5, searchDepth: "advanced" }),
+                generateSearchSuggestions(activeTavily, searchQuery, genAI)
+            ]);
             
             searchResults = searchResponse.results;
-            searchQueries = searchResponse.query_suggestions;
+            searchQueries = suggestions; // Use the new smart suggestions
+
             const contextText = searchResults.map(r => `URL: ${r.url}, Content: ${r.content}`).join('\n\n');
             finalPrompt = `Based on these search results:\n---\n${contextText}\n---\n\nAnswer the user's query: "${lastUserMessage.content}"`;
         }
@@ -1487,8 +1521,6 @@ export const handleStreamingChat = (db, genAI, tavily) => async (req, res) => {
         res.end();
     }
 };
-
-// src/controllers/chatController.js
 
 export const regenerateResponseStreaming = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);

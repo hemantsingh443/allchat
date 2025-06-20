@@ -40,6 +40,8 @@ const AppContent = () => {
 
     const [messages, setMessages] = useState([]);
     const [isLoadingMessages, setIsLoadingMessages] = useState(false);
+    const [isStreaming, setIsStreaming] = useState(false);
+    const [streamingMessageContent, setStreamingMessageContent] = useState({});
 
     const isGuest = !userId;
 
@@ -60,8 +62,7 @@ const AppContent = () => {
     };
 
     const contextValue = useMemo(() => ({
-        isGuest,
-        handleSignIn,
+        isGuest, handleSignIn,
         chats, setChats,
         stats,
         activeChatId, setActiveChatId,
@@ -70,10 +71,12 @@ const AppContent = () => {
         isSidebarOpen, setIsSidebarOpen,
         font,
         messages, setMessages,
-        isLoadingMessages
+        isLoadingMessages,
+        isStreaming, setIsStreaming,
+        streamingMessageContent, setStreamingMessageContent
     }), [
         isGuest, chats, stats, activeChatId, memoizedGetToken, 
-        getConfirmation, isSidebarOpen, font, messages, isLoadingMessages, handleSignIn
+        getConfirmation, isSidebarOpen, font, messages, isLoadingMessages, isStreaming, streamingMessageContent, handleSignIn
     ]);
     
     const fetchMessages = useCallback(async (chatIdToFetch) => {
@@ -89,12 +92,11 @@ const AppContent = () => {
         setIsLoadingMessages(true);
         try {
             const token = await getToken();
-            const res = await fetch(`${API_URL}/api/chats/${chatIdToFetch}`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
+            const res = await fetch(`${API_URL}/api/chats/${chatIdToFetch}`, { headers: { 'Authorization': `Bearer ${token}` } });
             if (!res.ok) throw new Error(`Failed to fetch messages. Status: ${res.status}`);
             const data = await res.json();
-            setMessages(data.map(msg => ({ ...msg, text: msg.content, searchResults: msg.searchResults ? JSON.parse(msg.searchResults) : null })));
+            // FIX: Removed the redundant JSON.parse. The server now sends the already-parsed object.
+            setMessages(data.map(msg => ({ ...msg, text: msg.content })));
         } catch (error) {
             console.error("[FetchMessages] Error for", chatIdToFetch, ":", error);
             addNotification("Could not load messages for this chat.", 'error');
@@ -105,19 +107,16 @@ const AppContent = () => {
     }, [isGuest, chats, getToken, addNotification]);
 
     useEffect(() => {
-        fetchMessages(activeChatId);
-    }, [activeChatId, fetchMessages]);
+        if (!isStreaming) {
+            fetchMessages(activeChatId);
+        }
+    }, [activeChatId, fetchMessages, isStreaming]);
 
     const migrateGuestData = useCallback(async (guestChats) => {
         try {
             const token = await getToken();
-            const res = await fetch(`${API_URL}/api/chats/migrate-guest`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-                body: JSON.stringify({ guestChats }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Migration failed.');
+            const res = await fetch(`${API_URL}/api/chats/migrate-guest`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }, body: JSON.stringify({ guestChats }) });
+            if (!res.ok) throw new Error((await res.json()).error || 'Migration failed.');
         } catch (err) {
             addNotification('Failed to migrate guest chats.', 'error');
         }
@@ -148,11 +147,8 @@ const AppContent = () => {
     useEffect(() => {
         const savedTheme = localStorage.getItem('theme');
         const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        if (savedTheme === 'dark' || (!savedTheme && systemPrefersDark)) {
-            document.documentElement.classList.add('dark');
-        } else {
-            document.documentElement.classList.remove('dark');
-        }
+        if (savedTheme === 'dark' || (!savedTheme && systemPrefersDark)) document.documentElement.classList.add('dark');
+        else document.documentElement.classList.remove('dark');
     }, []);
 
     useEffect(() => {

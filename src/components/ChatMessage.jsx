@@ -1,18 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import GlassPanel from './GlassPanel';
 import { User, Sparkles, Pencil, Check, X, Trash2, Globe, ChevronDown, GitBranch, Brain, Eye, Code, Copy, Maximize2, Edit, FileText, Search, ExternalLink, Link as LinkIcon, Youtube, Wand2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus, prism } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import HierarchicalModelSelector from './HierarchicalModelSelector';
 import { allModels } from '../data/models';
 import 'katex/dist/katex.min.css';
-import { InlineMath, BlockMath } from 'react-katex';
 import ActionTooltip from './ActionTooltip';
 import { CapabilityIcons } from './CapabilityIcons';
 
-// ... (Other components like getFavicon, CompactResultCard, etc. are correct and omitted for brevity) ...
 const getFavicon = (url) => {
     try {
         const hostname = new URL(url).hostname;
@@ -51,7 +51,6 @@ const CompactResultCard = ({ result, index }) => (
 );
 
 const IntegratedSearchResults = ({ results, searchQueries, onSearchSuggestionClick }) => {
-    // This is a simplified placeholder. In a real app, you'd use NLP.
     const generateAISuggestions = (results) => {
         if (!results || results.length === 0) return [];
         const topics = new Set();
@@ -104,7 +103,6 @@ const IntegratedSearchResults = ({ results, searchQueries, onSearchSuggestionCli
         </div>
     );
 };
-// ====================================================================
 
 const PlainTextCopyButton = ({ textToCopy }) => {
     const [isCopied, setIsCopied] = useState(false);
@@ -116,22 +114,6 @@ const CodeCopyButton = ({ textToCopy }) => {
     const [isCopied, setIsCopied] = useState(false);
     const handleCopy = (e) => { e.stopPropagation(); navigator.clipboard.writeText(textToCopy).then(() => { setIsCopied(true); setTimeout(() => setIsCopied(false), 2000); }); };
     return ( <button onClick={handleCopy} className="absolute top-2.5 right-2.5 p-1.5 rounded-lg bg-black/30 text-slate-300 hover:bg-black/50 hover:text-white transition-all opacity-0 group-hover/code:opacity-100" title="Copy code">{isCopied ? <Check size={16} /> : <Copy size={16} />}</button> );
-};
-
-const LaTeXRenderer = ({ children, display = false }) => {
-    try {
-        const cleanContent = children.toString().trim();
-        if (!cleanContent) return null;
-        const processedContent = cleanContent.replace(/\\n/g, '\\\\').replace(/\\t/g, '\\quad').trim();
-        return display ? <BlockMath math={processedContent} /> : <InlineMath math={processedContent} />;
-    } catch (error) {
-        try {
-            const fallbackContent = children.toString().replace(/\\/g, '\\\\').replace(/\{/g, '\\{').replace(/\}/g, '\\}').trim();
-            return display ? <BlockMath math={fallbackContent} /> : <InlineMath math={fallbackContent} />;
-        } catch (fallbackError) {
-            return <code className="text-red-500 bg-red-50 dark:bg-red-900/20 px-1 rounded text-xs">{children}</code>;
-        }
-    }
 };
 
 const LanguageLabel = ({ language }) => ( <div className="absolute top-0 left-3 text-xs font-semibold text-slate-400 dark:text-slate-500 bg-slate-100/80 dark:bg-slate-800/80 backdrop-blur-sm px-2 py-0.5 rounded-b-md border border-t-0 border-slate-200 dark:border-slate-700">{language}</div> );
@@ -180,7 +162,7 @@ const LiveThoughtsAnimation = ({ streamingThoughts }) => {
         bufferRef.current = unprocessed;
 
         if (newThoughtLines.length > 0) {
-            setThoughtLines(prev => [...prev, ...newThoughtLines].slice(-4)); // Keep last 4 lines for better spacing
+            setThoughtLines(prev => [...prev, ...newThoughtLines].slice(-4));
         }
     }, [streamingThoughts]);
     
@@ -197,8 +179,8 @@ const LiveThoughtsAnimation = ({ streamingThoughts }) => {
                             key={line.id}
                             layout
                             initial={{ opacity: 0, y: 25 }}
-                            animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 260, damping: 25 } }}
-                            exit={{ opacity: 0, scale: 0.8, transition: { duration: 0.3 } }}
+                            animate={{ opacity: 1, y: 0, transition: { type: 'spring', stiffness: 350, damping: 30 } }}
+                            exit={{ opacity: 0, y: -25, transition: { duration: 0.3 } }}
                             className="w-full"
                         >
                            <ReactMarkdown
@@ -263,6 +245,52 @@ const DeepSeekReasoningDisplay = ({ reasoning }) => {
     );
 };
 
+// ** UPDATED AND MORE ROBUST PRE-PROCESSOR **
+const preprocessMarkdown = (markdown) => {
+    if (!markdown) return '';
+
+    let processedText = markdown;
+    
+    // 1. Sanitize smart punctuation for better LaTeX compatibility.
+    processedText = processedText
+        .replace(/’/g, "'")
+        .replace(/“/g, '"')
+        .replace(/”/g, '"')
+        .replace(/‘/g, "'")
+        .replace(/—/g, '---')
+        .replace(/–/g, '--');
+
+    // 2. Normalize block-level LaTeX.
+    // Converts [ ... ] (when on its own line, with optional space) to $$ ... $$
+    // This is safer than a global replacement to avoid capturing things like [a link].
+    processedText = processedText.replace(
+        /^\[\s*([\s\S]+?)\s*\]$/gm,
+        (match, content) => `$$${content.trim()}$$`
+    );
+
+    // 3. Handle the malformed, multi-line parenthesized block.
+    // This is a targeted fix for the specific broken example. It finds the block,
+    // cleans up internal newlines/spacing, and wraps it correctly.
+    processedText = processedText.replace(
+        /\(\s*ζ\s*\(\s*2\s*\)[\s\S]+?\)/g,
+        (match) => {
+            // Clean the content by removing the outer parens and collapsing newlines/excess space
+            let cleanedContent = match.slice(1, -1).replace(/\s*\n\s*/g, ' ').trim();
+            // In the specific example, there's a weird "ζ(2" pattern. Let's fix it.
+            cleanedContent = cleanedContent.replace(/ζ\s*\(\s*2\s*\)/, 'ζ(2)');
+            return `$$${cleanedContent}$$`;
+        }
+    );
+
+    // After other processing, ensure standard delimiters are also handled,
+    // though remark-math should do this. This is for consistency.
+    processedText = processedText.replace(/\\\[([\s\S]+?)\\\]/g, (match, content) => `$$${content}$$`);
+    processedText = processedText.replace(/\\\(([\s\S]+?)\\\)/g, (match, content) => `$${content}$`);
+
+    return processedText;
+};
+
+
 const ChatMessage = React.memo(({ id, text, sender, editCount, imageUrl, usedWebSearch, modelId, handleUpdateMessage, handleDeleteMessage, onImageClick, handleRegenerate, handleBranch, searchResults, fileName, fileType, reasoning, isStreaming, handleSearchSuggestionClick, isGuest = false }) => {
     const isUser = sender === 'user';
     const [isEditing, setIsEditing] = useState(false);
@@ -288,6 +316,8 @@ const ChatMessage = React.memo(({ id, text, sender, editCount, imageUrl, usedWeb
     const handleSave = async () => { if (editText.trim() === text.trim() || editText.trim() === '') { setIsEditing(false); return; } await handleUpdateMessage(id, editText); setIsEditing(false); };
     const handleCancel = () => { setEditText(text); setIsEditing(false); };
     const handleKeyDown = (e) => { if (e.key === 'Enter' && e.ctrlKey) { e.preventDefault(); handleSave(); } if (e.key === 'Escape') { e.preventDefault(); handleCancel(); } };
+
+    const processedText = useMemo(() => preprocessMarkdown(text), [text]);
 
     return (
         <motion.div className={`flex items-start gap-3 w-full ${isUser ? 'justify-end' : ''}`} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3, ease: "easeOut" }}>
@@ -317,23 +347,26 @@ const ChatMessage = React.memo(({ id, text, sender, editCount, imageUrl, usedWeb
                         {!isUser && text && (
                             <div className="w-full">
                                 <div className="prose prose-sm prose-slate dark:prose-invert prose-p:my-2 prose-headings:my-3 max-w-none text-slate-800 dark:text-white">
-                                    {(() => {
-                                        if (!text) return null;
-                                        const mathRegex = /(\$\$[\s\S]*?\$\$)|(\\\[[\s\S]*?\\\])|(\$[^$\n]+?\$)|(\\\([\s\S]+?\\\))/g;
-                                        const matches = Array.from(text.matchAll(mathRegex));
-                                        const renderMarkdown = (markdownText, keyPrefix) => (<ReactMarkdown key={keyPrefix} components={{ code({ node, inline, className, children, ...props }) { const match = /language-(\w+)/.exec(className || ''); const codeString = String(children).replace(/\n$/, ''); if (!inline && match) { return (<div className="relative group/code my-4 rounded-xl overflow-hidden"><CodeCopyButton textToCopy={codeString} /><LanguageLabel language={match[1]} /><SyntaxHighlighter children={codeString} style={syntaxStyle} language={match[1]} PreTag="div" className="custom-code-scrollbar !pt-8" customStyle={{ margin: 0, padding: '1.25rem', borderRadius: '0.75rem', backgroundColor: currentCodeColors.backgroundColor }} {...props} /></div>); } return <code className="bg-slate-200 dark:bg-slate-700/50 text-sm font-medium text-slate-800 dark:text-red-300 px-1.5 py-1 rounded-md" {...props}>{children}</code>; } }}>{markdownText}</ReactMarkdown>);
-                                        if (matches.length === 0) return renderMarkdown(text, "full");
-                                        let lastIndex = 0; const elements = [];
-                                        matches.forEach((match, index) => {
-                                            if (match.index > lastIndex) { const beforeText = text.slice(lastIndex, match.index); if (beforeText.trim()) elements.push(renderMarkdown(beforeText, `text-${index}`)); }
-                                            const blockContent = match[1] || match[2]; const inlineContent = match[3] || match[4];
-                                            if (blockContent) { const mathContent = blockContent.substring(2, blockContent.length - 2).trim(); elements.push(<LaTeXRenderer key={`math-${index}`} display={true}>{mathContent}</LaTeXRenderer>); } 
-                                            else if (inlineContent) { const delimiterLength = inlineContent.startsWith('$') ? 1 : 2; const mathContent = inlineContent.substring(delimiterLength, inlineContent.length - delimiterLength).trim(); elements.push(<LaTeXRenderer key={`math-${index}`} display={false}>{mathContent}</LaTeXRenderer>); }
-                                            lastIndex = match.index + match[0].length;
-                                        });
-                                        if (lastIndex < text.length) { const afterText = text.slice(lastIndex); if (afterText.trim()) elements.push(renderMarkdown(afterText, "text-after")); }
-                                        return <>{elements}</>;
-                                    })()}
+                                    <ReactMarkdown
+                                        remarkPlugins={[remarkMath]}
+                                        rehypePlugins={[rehypeKatex]}
+                                        components={{
+                                            code({ node, inline, className, children, ...props }) {
+                                                const match = /language-(\w+)/.exec(className || '');
+                                                const codeString = String(children).replace(/\n$/, '');
+                                                if (!inline && match) {
+                                                    return (
+                                                        <div className="relative group/code my-4 rounded-xl overflow-hidden">
+                                                            <CodeCopyButton textToCopy={codeString} />
+                                                            <LanguageLabel language={match[1]} />
+                                                            <SyntaxHighlighter children={codeString} style={syntaxStyle} language={match[1]} PreTag="div" className="custom-code-scrollbar !pt-8" customStyle={{ margin: 0, padding: '1.25rem', borderRadius: '0.75rem', backgroundColor: currentCodeColors.backgroundColor }} {...props} />
+                                                        </div>
+                                                    );
+                                                }
+                                                return <code className="bg-slate-200 dark:bg-slate-700/50 text-sm font-medium text-slate-800 dark:text-red-300 px-1.5 py-1 rounded-md" {...props}>{children}</code>;
+                                            }
+                                        }}
+                                    >{processedText}</ReactMarkdown>
                                     {isStreaming && text.length > 0 && <span className="inline-block w-2 h-4 bg-slate-800 dark:bg-white ml-1 animate-pulse"></span>}
                                 </div>
                                 {hasSearchResults && <IntegratedSearchResults results={searchResults.results || searchResults} searchQueries={searchResults.queries} onSearchSuggestionClick={handleSearchSuggestionClick} />}

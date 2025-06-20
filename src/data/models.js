@@ -75,7 +75,7 @@ export const modelCategories = [
         name: "Community",
         logo: <OllamaLogo />,
         models: [
-            { id: 'nous-hermes/nous-hermes-2-mixtral-8x7b-dpo', name: 'Nous Hermes 2 Mixtral', description: 'A powerful open-source Mixtral fine-tune.', capabilities: { code: true } },
+            { id: 'nousresearch/hermes-3-llama-3.1-70b', name: 'Nous Hermes 3 Llama 3.1 70B', description: 'A powerful open-source Hermes 3 model based on Llama 3.1 70B.', capabilities: { code: true } },
         ]
     },
 ];
