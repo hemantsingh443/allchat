@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil, Check, X, GripVertical } from 'lucide-react';
+import { Plus, MessageSquare, Trash2, PanelLeftOpen, GitBranch, Search, LogIn, ArrowRight, Pencil, Check, X, GripVertical, Share2, CornerLeftUp } from 'lucide-react';
 import { UserButton } from "@clerk/clerk-react";
 import { useAppContext } from '../App';
 import { useNotification } from '../contexts/NotificationContext';
@@ -39,21 +39,34 @@ const CategoryHeader = ({ title }) => (
 
 const providersToInvert = ['OpenAI', 'xAI', 'Kimi', 'Ollama', 'Community'];
 
-const ChatItem = React.memo(({ chat, depth, isActive, onSelect, onDelete, onEdit, isEditing, editingTitle, onTitleChange, onSaveTitle, onCancelEdit, isMobile, onToggleSidebar }) => {
+const ChatItem = React.memo(({ 
+    chat,
+    depth,
+    isActive, 
+    onSelect, 
+    onDelete, 
+    onEdit, 
+    onShare,
+    isEditing, 
+    editingTitle, 
+    onTitleChange, 
+    onSaveTitle, 
+    onCancelEdit,
+    isMobile,
+    onToggleSidebar
+}) => {
     const [hoveredChatId, setHoveredChatId] = useState(null);
+    
     if (!chat || !chat.id) return null;
     
     const getModelCategory = (modelId) => modelCategories.find(cat => cat.models.some(m => m.id === modelId));
     const modelCategory = getModelCategory(chat.modelId);
     
-    const handleChatSelect = () => {
-        onSelect(chat.id);
-        if (isMobile) onToggleSidebar();
-    };
+    const handleChatSelect = () => { onSelect(chat.id); if (isMobile) onToggleSidebar(); };
     
     return (
         <motion.div layout="position" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: -20, transition: { duration: 0.2 } }}>
-            <div onClick={handleChatSelect} onMouseEnter={() => setHoveredChatId(chat.id)} onMouseLeave={() => setHoveredChatId(null)} className={`relative flex items-center justify-between gap-3 p-2 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-black/10 dark:bg-white/10' : 'hover:bg-black/5 dark:hover:bg-white/5'}`} style={{ marginLeft: `${depth * 12}px`, borderLeft: chat.sourceChatId ? '2px solid rgba(59, 130, 246, 0.2)' : 'none' }}>
+            <div onClick={handleChatSelect} onMouseEnter={() => setHoveredChatId(chat.id)} onMouseLeave={() => setHoveredChatId(null)} className={`relative flex items-center justify-between gap-3 p-2 rounded-lg cursor-pointer transition-colors ${isActive ? 'bg-black/10 dark:bg:white/10' : 'hover:bg-black/5 dark:hover:bg-white/5'}`} style={{ marginLeft: `${depth * 12}px`, borderLeft: chat.sourceChatId ? '2px solid rgba(59, 130, 246, 0.2)' : 'none' }}>
                 <div className="flex items-center gap-3 overflow-hidden">
                     {chat.sourceChatId ? <GitBranch size={16} className="text-blue-500/70 dark:text-blue-400/70 flex-shrink-0" /> : <span className={`w-4 h-4 text-slate-700 dark:text-gray-300 flex-shrink-0 ${providersToInvert.includes(modelCategory?.name) ? 'dark:invert' : ''}`}>{modelCategory?.logo || <MessageSquare size={16}/>}</span>}
                     {isEditing ? (
@@ -73,6 +86,7 @@ const ChatItem = React.memo(({ chat, depth, isActive, onSelect, onDelete, onEdit
                 </div>
                 {hoveredChatId === chat.id && !isEditing && (
                     <motion.div initial={{ opacity: 0, scale: 0.8 }} animate={{ opacity: 1, scale: 1 }} className="flex items-center">
+                        <button onClick={(e) => onShare(e, chat.id)} className="p-1 rounded hover:bg-indigo-500/20 text-indigo-500" title="Share chat"><Share2 size={14} /></button>
                         <button onClick={(e) => onEdit(e, chat)} className="p-1 rounded hover:bg-blue-500/20 text-blue-500" title="Edit title"><Pencil size={14} /></button>
                         <button onClick={(e) => onDelete(chat.id, e)} className="p-1 rounded hover:bg-red-500/20 text-red-500" title="Delete chat"><Trash2 size={14} /></button>
                     </motion.div>
@@ -204,6 +218,19 @@ const Sidebar = ({ isOpen, toggle, onSignInRequest }) => {
         }
     }, [editingTitle, chats, isGuest, getToken, setChats, handleCancelEdit, addNotification]);
 
+    const handleShareChat = useCallback((e, chatId) => {
+        e.stopPropagation();
+        const shareUrl = `${window.location.origin}/share/${chatId}`;
+        navigator.clipboard.writeText(shareUrl)
+            .then(() => {
+                addNotification('Share link copied to clipboard!', 'success');
+            })
+            .catch(err => {
+                addNotification('Failed to copy link.', 'error');
+                console.error('Failed to copy share link:', err);
+            });
+    }, [addNotification]);
+
     const processedChats = useMemo(() => {
         try {
             if (!chats || !Array.isArray(chats) || chats.length === 0) return [];
@@ -284,7 +311,22 @@ const Sidebar = ({ isOpen, toggle, onSignInRequest }) => {
                                     return (
                                         <React.Fragment key={chat.id}>
                                             {categoryHeader}
-                                            <ChatItem chat={chat} depth={chat.depth} isActive={activeChatId === chat.id} onSelect={setActiveChatId} onDelete={handleDeleteChat} onEdit={handleEditClick} isEditing={editingChatId === chat.id} editingTitle={editingTitle} onTitleChange={handleTitleChange} onSaveTitle={handleSaveTitle} onCancelEdit={handleCancelEdit} isMobile={isMobile} onToggleSidebar={toggle} />
+                                            <ChatItem
+                                                chat={chat}
+                                                depth={chat.depth}
+                                                isActive={activeChatId === chat.id}
+                                                onSelect={setActiveChatId}
+                                                onDelete={handleDeleteChat}
+                                                onEdit={handleEditClick}
+                                                onShare={handleShareChat}
+                                                isEditing={editingChatId === chat.id}
+                                                editingTitle={editingTitle}
+                                                onTitleChange={handleTitleChange}
+                                                onSaveTitle={handleSaveTitle}
+                                                onCancelEdit={handleCancelEdit}
+                                                isMobile={isMobile}
+                                                onToggleSidebar={toggle}
+                                            />
                                         </React.Fragment>
                                     );
                                 });

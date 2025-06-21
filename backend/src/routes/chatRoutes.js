@@ -1,29 +1,30 @@
 import { Router } from 'express';
-import { getAllChats, getChatMessages, deleteChat, updateChatTitle, updateChatModel, handleChat, handleStreamingChat, regenerateResponse, regenerateResponseStreaming, deleteMessage, branchChat, handleGuestChat, handleGuestChatStreaming, migrateGuestChats, getUserStats } from '../controllers/chatController.js';
+import { getAllChats, getChatMessages, deleteChat, updateChatTitle, updateChatModel, handleChat, handleStreamingChat, regenerateResponse, regenerateResponseStreaming, deleteMessage, branchChat, handleGuestChat, handleGuestChatStreaming, migrateGuestChats, getUserStats, getSharedChat } from '../controllers/chatController.js';
 
 export default function(db, genAI, tavily) {
     const guestRouter = Router();
     const protectedRouter = Router();
+    const publicRouter = Router(); // NEW: Dedicated router for public endpoints
 
-    // Guest Routes (Public)
-    guestRouter.post('/chat/guest', handleGuestChat(genAI));
+    // Public Routes (No Auth)
+    publicRouter.get('/share/:shareId', getSharedChat(db));
+
+    // Guest Routes (No Auth)
     guestRouter.post('/chat/guest/stream', handleGuestChatStreaming(genAI));
 
-    // Protected Routes (Authenticated)
-    protectedRouter.get('/chats', getAllChats(db));
-    protectedRouter.get('/chats/:chatId', getChatMessages(db));
-    protectedRouter.delete('/chats/:chatId', deleteChat(db));
-    protectedRouter.patch('/chats/:chatId/title', updateChatTitle(db));
-    protectedRouter.patch('/chats/:chatId/model', updateChatModel(db));
-    protectedRouter.post('/chats/branch', branchChat(db));
-    protectedRouter.post('/chat', handleChat(db, genAI, tavily));
-    protectedRouter.post('/chat/stream', handleStreamingChat(db, genAI, tavily));
-    protectedRouter.post('/chat/regenerate', regenerateResponse(db, genAI, tavily));
-    protectedRouter.post('/chat/regenerate/stream', regenerateResponseStreaming(db, genAI, tavily));
-    protectedRouter.delete('/messages/:messageId', deleteMessage(db));
-    protectedRouter.post('/chats/migrate-guest', migrateGuestChats(db));
-    protectedRouter.get('/user-stats', getUserStats(db));
-    
+// Protected Routes (Authenticated)
+protectedRouter.get('/chats', getAllChats(db));
+protectedRouter.get('/chats/:chatId', getChatMessages(db));
+protectedRouter.delete('/chats/:chatId', deleteChat(db));
+protectedRouter.patch('/chats/:chatId/title', updateChatTitle(db));
+protectedRouter.patch('/chats/:chatId/model', updateChatModel(db));
+protectedRouter.post('/chats/branch', branchChat(db));
+protectedRouter.post('/chat/stream', handleStreamingChat(db, genAI, tavily));
+protectedRouter.post('/chat/regenerate/stream', regenerateResponseStreaming(db, genAI, tavily));
+protectedRouter.delete('/messages/:messageId', deleteMessage(db));
+protectedRouter.post('/chats/migrate-guest', migrateGuestChats(db));
+protectedRouter.get('/user-stats', getUserStats(db));
+
     // Token configuration route
     protectedRouter.get('/token-config', (req, res) => {
         res.json({
@@ -81,5 +82,5 @@ export default function(db, genAI, tavily) {
         });
     });
 
-    return { guestRouter, protectedRouter };
+    return { guestRouter, protectedRouter, publicRouter };
 }

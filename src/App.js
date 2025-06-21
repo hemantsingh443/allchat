@@ -11,6 +11,7 @@ import ProfileTab from './components/settings/ProfileTab';
 import CustomizationTab from './components/settings/CustomizationTab';
 import ApiKeysTab from './components/settings/ApiKeysTab';
 import { FontProvider, useFont } from './contexts/FontContext';
+import SharePage from './pages/SharePage'; // Import the new page
 
 export const AppContext = createContext(null);
 export const useAppContext = () => useContext(AppContext);
@@ -181,6 +182,8 @@ const AppContent = () => {
             <Routes>
                 <Route path="/" element={ userId ? <T3ChatUI isGuest={false} /> : isGuestMode ? <T3ChatUI isGuest={true} handleSignIn={handleSignIn} /> : <LandingPage onSignIn={() => handleSignIn(true)} onTryOut={handleTryOut} /> } />
                 <Route path="/sso-callback" element={<AuthenticateWithRedirectCallback />} />
+                {/* ADDED: New route for the share page */}
+                <Route path="/share/:shareId" element={<SharePage />} />
                 <Route path="/settings" element={userId ? <SettingsPage /> : <NavigateToHome />}>
                     <Route index element={<ProfileTab />} />
                     <Route path="profile" element={<ProfileTab />} />

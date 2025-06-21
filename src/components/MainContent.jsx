@@ -4,7 +4,7 @@ import {
     Settings, Sun, Moon, Code, Eye, Brain, Filter, X,
     BookOpen, Globe, Paperclip, ArrowUp, ChevronDown, Trash2, Info,
     LoaderCircle, CheckCircle, XCircle, Lightbulb, Maximize2, FileText, Sparkles, Search, Gem,
-    FlaskConical, Rocket, BrainCircuit, HelpCircle, ArrowLeft
+    FlaskConical, Rocket, BrainCircuit, HelpCircle, ArrowLeft, GitBranch, CornerLeftUp
 } from 'lucide-react';
 import { useAppContext } from '../App';
 import { useAuth } from '@clerk/clerk-react';
@@ -17,6 +17,7 @@ import { useNotification } from '../contexts/NotificationContext';
 import ScrollToBottomButton from './ScrollToBottomButton';
 import HierarchicalModelSelector from './HierarchicalModelSelector';
 import { useNavigate } from 'react-router-dom';
+import BranchIndicator from './BranchIndicator'; // Import the new component
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001';
 const GUEST_TRIAL_LIMIT = 8;
@@ -339,6 +340,12 @@ const MainContent = () => {
     }, [guestTrials, addNotification, handleSignIn]);
 
     const activeChat = useMemo(() => chats.find(c => c.id === activeChatId), [chats, activeChatId]);
+    const parentChat = useMemo(() => {
+        if (activeChat?.sourceChatId) {
+            return chats.find(c => c.id === activeChat.sourceChatId);
+        }
+        return null;
+    }, [activeChat, chats]);
     const currentChatModelId = useMemo(() => activeChat?.modelId || newChatModelId, [activeChat, newChatModelId]);
     const currentModelDetails = allModels.find(m => m.id === currentChatModelId);
     const needsUserKey = currentModelDetails && !currentModelDetails.id.startsWith('google/') && !currentModelDetails.isFree;
@@ -716,7 +723,7 @@ const MainContent = () => {
                 </div>
             </header>
                 <div ref={chatContainerRef} className="flex-1 overflow-y-auto w-full">
-                    <div className="max-w-4xl mx-auto px-4 space-y-4 py-4">
+                    <div className="max-w-4xl mx-auto px-4 space-y-4 pb-4">
                         {messages.length === 0 && !activeChatId && !isLoadingMessages && !isStreaming && <WelcomeScreen onSuggestionClick={handleSuggestionClick} user={user} />}
                         {messages.map((msg) => {
                             const streamingData = streamingMessageContent[msg.id];
@@ -734,32 +741,51 @@ const MainContent = () => {
                     </div>
                 </div>
                 <div className="relative z-10 px-2 pb-3 md:px-6 md:pb-6 pt-4">
-                    <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative w-full max-w-3xl mx-auto">
-                        {(filePreviewUrl || (selectedFile && selectedFile.mimeType === 'application/pdf')) && <AttachmentPreview file={selectedFile} previewUrl={filePreviewUrl} onRemove={handleRemoveFile} onView={() => filePreviewUrl && setViewingImageUrl(filePreviewUrl)} />}
-                        <GlassPanel className="flex flex-col sm:flex-row sm:items-center gap-2 p-1.5">
-                            <div className="flex items-center gap-2 w-full">
-                                <input type="text" value={currentMessage} onChange={(e) => setCurrentMessage(e.target.value)} onKeyDown={handleKeyDown} placeholder={isGuest ? `Guest Mode (${GUEST_TRIAL_LIMIT - guestTrials} left)` : "Type your message here..."} className="flex-1 bg-transparent px-3 py-2 text-md text-slate-700 placeholder:text-slate-500 dark:text-gray-300 dark:placeholder:text-gray-500 focus:outline-none" disabled={isStreaming} />
-                                <button id="send-button" onClick={handleSendMessage} disabled={isStreaming || (!currentMessage.trim() && !selectedFile)} className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedFile) && !isStreaming ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}><ArrowUp size={20} /></button>
-                            </div>
-                            <div className="flex items-center gap-1 w-full sm:w-auto justify-start sm:justify-end border-t sm:border-t-0 border-black/5 dark:border-white/5 pt-2 sm:pt-0">
-                                <CustomTooltip text={isGuest ? "Sign in to access other AI models" : "Select Model"} isGuest={isGuest}>
-                                    <button onClick={handleGuestModelSelect} disabled={isGuest} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 ${isGuest ? 'cursor-not-allowed opacity-50' : (needsUserKey && !hasUserKey ? 'ring-red-500/80' : (needsUserKey && hasUserKey ? 'ring-blue-500/80' : 'ring-transparent'))}`}>
-                                        <span className="truncate max-w-[100px] sm:max-w-none">{(allModels.find(m => m.id === currentChatModelId))?.name || 'Select Model'}</span>
-                                        <ChevronDown size={14} />
-                                    </button>
-                                </CustomTooltip>
-                                <CustomTooltip text={isGuest ? "Sign in to enable web search" : "Toggle Web Search"} isGuest={isGuest}>
-                                    <button onClick={() => !isGuest && setIsWebSearchEnabled(!isWebSearchEnabled)} disabled={isGuest} className={`p-2 rounded-lg transition-colors relative ${isGuest ? 'cursor-not-allowed opacity-50' : (isWebSearchEnabled ? 'bg-blue-600/30 text-blue-400' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10')}`}>
-                                        <Globe size={18} className={isWebSearchEnabled ? '' : "text-slate-600 dark:text-gray-400"} />
-                                        {!isGuest && isWebSearchEnabled && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-blue-500 text-white rounded-full px-1 py-0 leading-tight">{userKeys.tavily ? 'P' : 'D'}</span>}
-                                    </button>
-                                </CustomTooltip>
-                                <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*,application/pdf" className="hidden" disabled={isGuest} />
-                                <CustomTooltip text={isGuest ? "Sign in to attach files" : "Attach image or PDF"} isGuest={isGuest}>
-                                    <button onClick={() => !isGuest && fileInputRef.current?.click()} disabled={isGuest} className={`p-2 rounded-lg transition-colors ${isGuest ? 'cursor-not-allowed opacity-50' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}`}><Paperclip size={18} className="text-slate-600 dark:text-gray-400" /></button>
-                                </CustomTooltip>
-                            </div>
-                        </GlassPanel>
+                    <motion.div initial={{ y: 50, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="relative w-full max-w-4xl mx-auto">
+                        {/* Absolutely position the BranchIndicator to the left of the input box */}
+                        <AnimatePresence>
+                            {parentChat && (
+                                <motion.div
+                                    initial={{ opacity: 0, scale: 0.8 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    exit={{ opacity: 0, scale: 0.8 }}
+                                    className="absolute"
+                                    style={{ left: '-163px', bottom: '650px' }}
+                                >
+                                    <BranchIndicator 
+                                        parentChat={parentChat} 
+                                        onNavigate={() => setActiveChatId(parentChat.id)} 
+                                    />
+                                </motion.div>
+                            )}
+                        </AnimatePresence>
+                        <div className="flex-1 min-w-0">
+                            {(filePreviewUrl || (selectedFile && selectedFile.mimeType === 'application/pdf')) && <AttachmentPreview file={selectedFile} previewUrl={filePreviewUrl} onRemove={handleRemoveFile} onView={() => filePreviewUrl && setViewingImageUrl(filePreviewUrl)} />}
+                            <GlassPanel className="flex flex-col sm:flex-row sm:items-center gap-2 p-1.5">
+                                <div className="flex items-center gap-2 w-full">
+                                    <input type="text" value={currentMessage} onChange={(e) => setCurrentMessage(e.target.value)} onKeyDown={handleKeyDown} placeholder={isGuest ? `Guest Mode (${GUEST_TRIAL_LIMIT - guestTrials} left)` : "Type your message here..."} className="flex-1 bg-transparent px-3 py-2 text-md text-slate-700 placeholder:text-slate-500 dark:text-gray-300 dark:placeholder:text-gray-500 focus:outline-none" disabled={isStreaming} />
+                                    <button id="send-button" onClick={handleSendMessage} disabled={isStreaming || (!currentMessage.trim() && !selectedFile)} className={`p-2 rounded-lg transition-all duration-300 ${(currentMessage.trim() || selectedFile) && !isStreaming ? 'bg-slate-700 text-white hover:bg-slate-600' : 'bg-slate-200 dark:bg-gray-700 cursor-not-allowed'}`}><ArrowUp size={20} /></button>
+                                </div>
+                                <div className="flex items-center gap-1 w-full sm:w-auto justify-start sm:justify-end border-t sm:border-t-0 border-black/5 dark:border-white/5 pt-2 sm:pt-0">
+                                    <CustomTooltip text={isGuest ? "Sign in to access other AI models" : "Select Model"} isGuest={isGuest}>
+                                        <button onClick={handleGuestModelSelect} disabled={isGuest} className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 bg-black/5 hover:bg-black/10 text-slate-600 dark:bg-white/5 dark:hover:bg-white/10 dark:text-gray-300 ring-2 ${isGuest ? 'cursor-not-allowed opacity-50' : (needsUserKey && !hasUserKey ? 'ring-red-500/80' : (needsUserKey && hasUserKey ? 'ring-blue-500/80' : 'ring-transparent'))}`}>
+                                            <span className="truncate max-w-[100px] sm:max-w-none">{(allModels.find(m => m.id === currentChatModelId))?.name || 'Select Model'}</span>
+                                            <ChevronDown size={14} />
+                                        </button>
+                                    </CustomTooltip>
+                                    <CustomTooltip text={isGuest ? "Sign in to enable web search" : "Toggle Web Search"} isGuest={isGuest}>
+                                        <button onClick={() => !isGuest && setIsWebSearchEnabled(!isWebSearchEnabled)} disabled={isGuest} className={`p-2 rounded-lg transition-colors relative ${isGuest ? 'cursor-not-allowed opacity-50' : (isWebSearchEnabled ? 'bg-blue-600/30 text-blue-400' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10')}`}>
+                                            <Globe size={18} className={isWebSearchEnabled ? '' : "text-slate-600 dark:text-gray-400"} />
+                                            {!isGuest && isWebSearchEnabled && <span className="absolute -top-1 -right-1 text-[9px] font-bold bg-blue-500 text-white rounded-full px-1 py-0 leading-tight">{userKeys.tavily ? 'P' : 'D'}</span>}
+                                        </button>
+                                    </CustomTooltip>
+                                    <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept="image/*,application/pdf" className="hidden" disabled={isGuest} />
+                                    <CustomTooltip text={isGuest ? "Sign in to attach files" : "Attach image or PDF"} isGuest={isGuest}>
+                                        <button onClick={() => !isGuest && fileInputRef.current?.click()} disabled={isGuest} className={`p-2 rounded-lg transition-colors ${isGuest ? 'cursor-not-allowed opacity-50' : 'bg-black/5 hover:bg-black/10 dark:bg-white/5 dark:hover:bg-white/10'}`}><Paperclip size={18} className="text-slate-600 dark:text-gray-400" /></button>
+                                    </CustomTooltip>
+                                </div>
+                            </GlassPanel>
+                        </div>
                     </motion.div>
                 </div>
             </div>

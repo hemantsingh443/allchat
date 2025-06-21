@@ -715,6 +715,70 @@ export const handleChat = (db, genAI, tavily) => async (req, res) => {
     }
 };
 
+// NEW Controller Function
+export const getSharedChat = (db) => async (req, res) => {
+    const { shareId } = req.params;
+    const chatId = parseInt(shareId, 10);
+
+    if (isNaN(chatId)) {
+        return res.status(400).json({ error: 'Invalid share ID format.' });
+    }
+
+    try {
+        const chat = await db.query.chats.findFirst({
+            where: eq(schema.chats.id, chatId),
+            columns: {
+                title: true,
+                modelId: true,
+                createdAt: true,
+            },
+            with: {
+                messages: {
+                    columns: {
+                        id: true,
+                        sender: true,
+                        content: true,
+                        imageUrl: true,
+                        fileName: true,
+                        fileType: true,
+                        usedWebSearch: true,
+                        modelId: true,
+                        createdAt: true,
+                    },
+                    orderBy: [asc(schema.messages.id)],
+                },
+            },
+        });
+
+        if (!chat) {
+            return res.status(404).json({ error: 'Shared chat not found.' });
+        }
+        
+        // Return a simplified, public-safe version of the chat
+        res.json({
+            title: chat.title,
+            messages: chat.messages,
+        });
+
+    } catch (error) {
+        console.error(`Error fetching shared chat ${chatId}:`, error);
+        res.status(500).json({ error: 'Could not retrieve shared chat.' });
+    }
+};
+
+export default function(db, genAI, tavily) {
+    const guestRouter = Router();
+    const protectedRouter = Router();
+
+    // Guest and Public Routes
+    guestRouter.post('/chat/guest/stream', handleGuestChatStreaming(genAI));
+    guestRouter.get('/share/:shareId', getSharedChat(db)); // ADDED: New public share route
+
+    // ... (rest of the routes are unchanged)
+
+    return { guestRouter, protectedRouter };
+}
+
 export const regenerateResponse = (db, genAI, tavily) => async (req, res) => {
     const { userId } = getAuth(req);
     const { messageId, newContent, chatId, modelId, userApiKey, useWebSearch, userTavilyKey } = req.body;
