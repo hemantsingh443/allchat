@@ -3,7 +3,9 @@ import Sidebar, { SidebarToggle } from './components/Sidebar';
 import MainContent from './components/MainContent';
 import { AppContext } from './App';
 import MigrationModal from './components/MigrationModal';
+import { motion, AnimatePresence } from 'framer-motion';
 
+// A simple hook to check for a media query
 const useMediaQuery = (query) => {
     const [matches, setMatches] = useState(window.matchMedia(query).matches);
     useEffect(() => {
@@ -22,17 +24,20 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
     const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
     const [isMigrationModalOpen, setIsMigrationModalOpen] = useState(false);
 
+    // Set sidebar state based on viewport size
     useEffect(() => {
         setIsSidebarOpen(isDesktop);
     }, [isDesktop, setIsSidebarOpen]);
 
+    // Mouse tracking for aurora background
     useEffect(() => {
-        const handleMouseMove = (e) => setMousePos({ x: e.clientX, y: e.clientY });
+        const handleMouseMove = (e) => {
+            setMousePos({ x: e.clientX, y: e.clientY });
+        };
         window.addEventListener('mousemove', handleMouseMove);
         return () => window.removeEventListener('mousemove', handleMouseMove);
     }, []);
 
-    // This function is passed to the Sidebar to open the modal
     const triggerSignInFlow = useCallback(() => {
         setIsMigrationModalOpen(true);
     }, []);
@@ -47,14 +52,16 @@ const T3ChatUI = ({ isGuest, handleSignIn }) => {
                 isOpen={isMigrationModalOpen}
                 onConfirm={(shouldMigrate) => {
                     setIsMigrationModalOpen(false);
-                    // This calls the original function from App.js
-                    handleSignIn(shouldMigrate); 
+                    handleSignIn(shouldMigrate);
                 }}
                 onCancel={() => setIsMigrationModalOpen(false)}
             />
             <div 
-                className="h-screen w-full font-sans overflow-hidden bg-white dark:bg-[#111015] interactive-aurora-bg"
-                style={{ '--x': `${mousePos.x}px`, '--y': `${mousePos.y}px` }}
+                className="h-screen w-full overflow-hidden bg-white dark:bg-[#111015] interactive-aurora-bg"
+                style={{ 
+                    '--x': `${mousePos.x}px`, 
+                    '--y': `${mousePos.y}px` 
+                }}
             >
                 <main className="relative z-10 flex h-full">
                     <Sidebar isOpen={isSidebarOpen} toggle={toggleSidebar} onSignInRequest={triggerSignInFlow} />

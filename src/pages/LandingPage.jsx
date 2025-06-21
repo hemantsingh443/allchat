@@ -21,7 +21,7 @@ const LandingPage = ({ onSignIn, onTryOut }) => {
 
     return (
         <div
-            className="w-screen h-screen flex items-center justify-center bg-white dark:bg-[#111015] interactive-aurora-bg font-sans"
+            className="w-screen h-screen flex items-center justify-center bg-white dark:bg-[#111015] interactive-aurora-bg"
             style={{ '--x': `${mousePos.x}px`, '--y': `${mousePos.y}px` }}
         >
             <GlassPanel className="p-10 text-center">
